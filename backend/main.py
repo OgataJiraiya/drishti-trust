@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from backend.api import audit, evidence, health, inference, models, summary
+from backend.api import audit, evidence, health, inference, integration, models, summary
 from backend.core.config import Settings, settings as default_settings
 from backend.core.signing import generate_key_pair, load_private_key, load_public_key
 from backend.database.db import create_sqlite_engine, initialize, session_factory
@@ -14,6 +14,7 @@ from backend.services.model_registry_service import ModelRegistryService
 from backend.services.audit_service import AuditService
 from backend.services.evidence_service import EvidenceService
 from backend.services.summary_service import SummaryService
+from backend.services.integration_service import IntegrationService
 
 
 def create_app(settings: Settings = default_settings) -> FastAPI:
@@ -49,12 +50,14 @@ def create_app(settings: Settings = default_settings) -> FastAPI:
     app.state.audit_service = AuditService()
     app.state.evidence_service = EvidenceService()
     app.state.summary_service = SummaryService()
+    app.state.integration_service = IntegrationService()
     app.include_router(health.router)
     app.include_router(inference.router)
     app.include_router(models.router)
     app.include_router(audit.router)
     app.include_router(evidence.router)
     app.include_router(summary.router)
+    app.include_router(integration.router)
     return app
 
 

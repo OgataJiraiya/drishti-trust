@@ -299,6 +299,42 @@ findings, deduplicated reported limitations, score explanations, coverage, criti
 overrides, and audit-integrity status. It writes no evidence, audit records, replay
 state, model state, or persistent summary table.
 
+## Cross-Module Integration Gate
+
+All four detector modules submit batches through one strict, detector-agnostic boundary:
+
+- `POST /api/integration/runs` validates and ingests a module run.
+- `GET /api/integration/runs/{run_id}` retrieves immutable run metadata.
+- `GET /api/integration/runs` lists runs with pagination and optional module filtering.
+
+Run metadata (`run_id`, module, producer, and optional producer version) remains outside
+Finding Schema v1. The public Finding envelope is unchanged. A run contains 1–100
+findings, every finding must use the outer run's official module, and finding IDs must
+be unique within the request. Unknown fields, blank identifiers, invalid findings, and
+module mismatches fail validation before database mutation.
+
+The complete submission is canonically serialized and identified by a SHA-256 request
+hash. Finding order is part of that request identity. Ingestion acquires a SQLite
+`BEGIN IMMEDIATE` write reservation, checks the run identity and every finding identity,
+then stages all new findings and the run record before one commit. Consequently, a
+conflict at any position—including finding 100—persists none of that run's changes.
+
+Idempotency and immutability rules are:
+
+- same `run_id` and exact canonical request: `EXISTS`, with no new state or audit event;
+- same `run_id` with changed request content: HTTP 409;
+- globally existing identical Finding JSON: safely reused and counted as existing;
+- existing `finding_id` with any changed Finding field: HTTP 409 for the whole batch.
+
+After a newly created run commits, each newly stored finding receives the existing
+`EVIDENCE_CREATED` audit event and the run receives one `MODULE_RUN_INGESTED` event with
+bounded metadata and counts. Exact reruns do not duplicate either event. As documented
+for the existing audit architecture, these audit appends occur immediately after the
+integration transaction in separate serialized transactions. A process failure in that
+small post-commit window can therefore leave committed security state without its audit
+event; the gate does not claim cross-transaction atomicity that SQLite does not provide
+in the current architecture.
+
 ## Security Principles and Limitations
 
 - Authenticity != trustworthiness. An authentic receipt can originate from an unsafe or

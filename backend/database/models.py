@@ -95,3 +95,21 @@ class FindingRecord(Base):
     limitations_json: Mapped[str] = mapped_column(Text, nullable=False)
     finding_json: Mapped[str] = mapped_column(Text, nullable=False)
     ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class ModuleRunRecord(Base):
+    """Immutable integration metadata kept outside frozen Finding Schema v1."""
+
+    __tablename__ = "module_runs"
+
+    run_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    module: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    producer: Mapped[str] = mapped_column(String(128), nullable=False)
+    producer_version: Mapped[str | None] = mapped_column(String(64))
+    request_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    request_json: Mapped[str] = mapped_column(Text, nullable=False)
+    finding_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    existing_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    finding_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)

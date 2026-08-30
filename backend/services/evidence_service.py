@@ -29,8 +29,15 @@ class EvidenceService:
             response = EvidenceIngestionResponse(finding=self.to_schema(existing), result="EXISTS")
             session.rollback()
             return response
+        record = self.record_from_finding(finding, canonical)
+        repository.add(record)
+        return EvidenceIngestionResponse(finding=self.to_schema(record), result="CREATED")
+
+    @staticmethod
+    def record_from_finding(finding: Finding, canonical: str | None = None) -> FindingRecord:
+        """Build a persistence record without adding or committing it."""
         data = finding.model_dump(mode="json")
-        record = FindingRecord(
+        return FindingRecord(
             finding_id=finding.finding_id,
             module=finding.module.value,
             asset_type=finding.asset_type,
@@ -42,10 +49,8 @@ class EvidenceService:
             evidence_json=canonical_json_text(data["evidence"]),
             recommendation=finding.recommendation.value,
             limitations_json=canonical_json_text(data["limitations"]),
-            finding_json=canonical,
+            finding_json=canonical or canonical_json_text(data),
         )
-        repository.add(record)
-        return EvidenceIngestionResponse(finding=self.to_schema(record), result="CREATED")
 
     @staticmethod
     def to_schema(record: FindingRecord) -> Finding:
