@@ -1,0 +1,18 @@
+{
+  "finding_id": "F-DATA-001",
+  "module": "dataset_integrity",
+  "asset_type": "sample",
+  "asset_id": "sample:img_0042",
+  "category": "NEAR_DUPLICATE",
+  "severity": "HIGH",
+  "confidence": 0.91,
+  "reason": "Sample is near-identical to 37 other samples.",
+  "evidence": [
+    "phash_distance=3",
+    "cluster_id=17"
+  ],
+  "recommendation": "REVIEW",
+  "limitations": [
+    "Similarity heuristic; visually similar legitimate images may be flagged."
+  ]
+}
