@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+keys/private*
+secrets/
+
+# Databases / runtime state
+*.db
+*.sqlite
+*.sqlite3
+runtime/
+data/runtime/
+
+# Model / dataset artifacts
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.torchscript
+*.engine
+*.weights
+*.pkl
+*.pickle
+*.joblib
+datasets/
+models/
+artifacts/
+
+# Allow tiny explicit test fixtures if force-added intentionally
+
+# Logs / reports / generated output
+*.log
+reports/generated/
+output/
+outputs/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Frontend
+node_modules/
+dist/
+build/
+.next/
+
+# Temporary
+*.tmp
+*.temp
+.cache/
