@@ -4,7 +4,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.database.models import AuditLogRecord, AcceptedInferenceRecord, FindingRecord, InferenceReceiptRecord, RegisteredModelRecord
+from backend.database.models import AuditLogRecord, AcceptedInferenceRecord, FindingRecord, InferenceReceiptRecord, ModuleRunRecord, RegisteredModelRecord
 
 
 class ReceiptRepository:
@@ -128,6 +128,10 @@ class EvidenceRepository:
         self.session.add(record)
         self.session.commit()
 
+    def add_pending(self, record: FindingRecord) -> None:
+        """Stage a finding inside a caller-owned transaction without committing."""
+        self.session.add(record)
+
     def count(self) -> int:
         return int(self.session.scalar(select(func.count()).select_from(FindingRecord)) or 0)
 
@@ -155,5 +159,26 @@ class EvidenceRepository:
         total = int(self.session.scalar(select(func.count()).select_from(query.subquery())) or 0)
         records = list(self.session.scalars(
             query.order_by(FindingRecord.ingested_at, FindingRecord.finding_id).offset(offset).limit(limit)
+        ))
+        return total, records
+
+
+class ModuleRunRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, run_id: str) -> ModuleRunRecord | None:
+        return self.session.get(ModuleRunRecord, run_id)
+
+    def add_pending(self, record: ModuleRunRecord) -> None:
+        self.session.add(record)
+
+    def list(self, offset: int, limit: int, module: str | None = None) -> tuple[int, list[ModuleRunRecord]]:
+        query = select(ModuleRunRecord)
+        if module is not None:
+            query = query.where(ModuleRunRecord.module == module)
+        total = int(self.session.scalar(select(func.count()).select_from(query.subquery())) or 0)
+        records = list(self.session.scalars(
+            query.order_by(ModuleRunRecord.created_at, ModuleRunRecord.run_id).offset(offset).limit(limit)
         ))
         return total, records
