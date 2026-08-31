@@ -26,6 +26,7 @@ from backend.schemas.assessments import (
 )
 from backend.services.audit_service import AuditService
 from backend.services.summary_service import SummaryService
+from backend.services.audit_outbox_service import AuditOutboxService
 
 
 class AssessmentConflict(ValueError):
@@ -44,8 +45,9 @@ class SealResult:
 
 
 class AssessmentService:
-    def __init__(self, summary_service: SummaryService) -> None:
+    def __init__(self, summary_service: SummaryService, outbox: AuditOutboxService | None = None) -> None:
         self.summary_service = summary_service
+        self.outbox = outbox
 
     def create(self, body: AssessmentCreate, session: Session) -> AssessmentDetails:
         metadata_json = canonical_json_text(body.metadata)
@@ -61,6 +63,10 @@ class AssessmentService:
             description=body.description, status="DRAFT", metadata_json=metadata_json,
         )
         repository.add_pending(record)
+        if self.outbox:
+            self.outbox.stage(session, f"ASSESSMENT_CREATED:{body.assessment_id}",
+                "ASSESSMENT_CREATED", "assessment", body.assessment_id,
+                {"assessment_id": body.assessment_id, "name": body.name})
         try:
             session.commit()
         except IntegrityError as exc:
@@ -87,6 +93,10 @@ class AssessmentService:
             raise AssessmentConflict(f"Assessment {active.assessment_id!r} is already ACTIVE")
         record.status = "ACTIVE"
         record.activated_at = datetime.now(timezone.utc)
+        if self.outbox:
+            self.outbox.stage(session, f"ASSESSMENT_ACTIVATED:{assessment_id}",
+                "ASSESSMENT_ACTIVATED", "assessment", assessment_id,
+                {"assessment_id": assessment_id})
         try:
             session.commit()
         except IntegrityError as exc:
@@ -158,6 +168,15 @@ class AssessmentService:
         snapshots.add_pending(snapshot_record)
         record.status = "SEALED"
         record.sealed_at = sealed_at
+        if self.outbox:
+            overall = payload["summary"]["overall"]
+            self.outbox.stage(session, f"ASSESSMENT_SEALED:{assessment_id}",
+                "ASSESSMENT_SEALED", "assessment", assessment_id, {
+                    "assessment_id": assessment_id, "snapshot_hash": snapshot_record.summary_hash,
+                    "run_set_hash": run_set_hash, "run_count": len(runs),
+                    "trusted_finding_count": summary.trusted_finding_count,
+                    "overall_disposition": overall["disposition"],
+                })
         session.commit()
         return SealResult(self.to_details(record), self.to_snapshot(snapshot_record), True)
 

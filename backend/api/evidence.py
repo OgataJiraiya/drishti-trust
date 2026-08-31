@@ -4,7 +4,6 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
-from backend.api.audit import append_event
 from backend.api.dependencies import get_session
 from backend.api.auth import require_trusted_internal_ingest
 from backend.database.repository import EvidenceRepository
@@ -42,16 +41,8 @@ async def ingest_finding(
     except EvidenceConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if result.result == "CREATED":
-        finding = result.finding
-        append_event(request, "EVIDENCE_CREATED", "finding", finding.finding_id, {
-            "finding_id": finding.finding_id,
-            "module": finding.module,
-            "asset_type": finding.asset_type,
-            "asset_id": finding.asset_id,
-            "category": finding.category,
-            "severity": finding.severity,
-            "recommendation": finding.recommendation,
-        })
+        try: request.app.state.audit_outbox_service.drain_pending()
+        except Exception: pass
     return result
 
 

@@ -39,14 +39,8 @@ async def create_receipt(
 ) -> InferenceReceipt:
     try:
         receipt = service.create_receipt(body, session)
-        append_event(
-            request=request,
-            event_type="INFERENCE_RECEIPT_CREATED", asset_type="inference",
-            asset_id=receipt.receipt_id,
-            payload={"receipt_id": receipt.receipt_id, "input_sha256": receipt.input.sha256,
-                     "model_id": receipt.model.model_id, "model_sha256": receipt.model.sha256,
-                     "output_sha256": receipt.inference.output_sha256},
-        )
+        try: request.app.state.audit_outbox_service.drain_pending()
+        except Exception: pass
         return receipt
     except InvalidInputEncoding as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -119,7 +113,11 @@ async def accept_receipt(
     else:
         event_type = "INFERENCE_VERIFICATION_FAILED"
         payload = {"receipt_id": body.receipt.receipt_id, "status": result.status, "checks": result.checks}
-    append_event(request, event_type, "inference", body.receipt.receipt_id, payload)
+    if result.status == "ACCEPT":
+        try: request.app.state.audit_outbox_service.drain_pending()
+        except Exception: pass
+    else:
+        append_event(request, event_type, "inference", body.receipt.receipt_id, payload)
     return result
 
 

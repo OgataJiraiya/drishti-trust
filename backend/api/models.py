@@ -43,12 +43,8 @@ async def register_digest(
     try:
         result = registry.register_digest(body, session)
         if not result.idempotent:
-            append_event(request, "MODEL_REGISTERED", "model", result.entry.model_id, {
-                "model_id": result.entry.model_id,
-                "expected_sha256": result.entry.expected_sha256,
-                "registration_source": result.entry.registration_source,
-                "status": result.entry.status,
-            })
+            try: request.app.state.audit_outbox_service.drain_pending()
+            except Exception: pass
         return result
     except ModelRegistrationConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -87,13 +83,8 @@ async def register_artifact(
             version=version,
         )
         if not result.idempotent:
-            append_event(request, "MODEL_REGISTERED", "model", result.entry.model_id, {
-                "model_id": result.entry.model_id,
-                "expected_sha256": result.entry.expected_sha256,
-                "registration_source": result.entry.registration_source,
-                "artifact_size_bytes": result.entry.artifact_size_bytes,
-                "status": result.entry.status,
-            })
+            try: request.app.state.audit_outbox_service.drain_pending()
+            except Exception: pass
         return result
     except ArtifactTooLarge as exc:
         raise HTTPException(status_code=413, detail=str(exc)) from exc
@@ -191,7 +182,6 @@ async def revoke_model(
     entry = registry.revoke(model_id, session)
     if entry is None:
         raise HTTPException(status_code=404, detail="Registered model not found")
-    append_event(request, "MODEL_REVOKED", "model", model_id, {
-        "model_id": model_id, "expected_sha256": entry.expected_sha256, "status": entry.status,
-    })
+    try: request.app.state.audit_outbox_service.drain_pending()
+    except Exception: pass
     return entry

@@ -412,11 +412,10 @@ ingestion but does not establish producer authenticity. External module handoff 
 use the signed endpoint. Finding Schema v1 is unchanged; all authentication metadata is
 outside its frozen envelope.
 
-Operational limitations: producer administration routes do not yet have administrator
-RBAC; offline key provisioning is a trust ceremony; possession of an approved private
-key authenticates producer identity but not detector correctness; and key compromise
-requires explicit durable revocation. Registry/integration state and audit append remain
-consecutive transactions with the previously documented small crash window.
+Operational limitations: administrator bearer auth is MVP access control, offline key
+provisioning is a trust ceremony, possession of an approved private key authenticates
+identity but not detector correctness, and key compromise requires explicit revocation.
+Durable state events use the transactional audit outbox described below.
 
 ## Assessment Lifecycle
 
@@ -438,14 +437,40 @@ assessments are excluded. Scoring and disposition policy are unchanged.
 Seal persists canonical summary JSON and SHA-256 plus a deterministic run-set commitment
 over sorted run ID, request hash, and authentication mode entries. Snapshot GET never
 recomputes it; snapshot verification checks payload and current membership integrity.
-Create, activate, and seal add bounded audit events, and scoped run events carry the
-assessment ID.
+Create, activate, and seal transactionally stage bounded audit intents, and scoped run
+events carry the assessment ID.
 
 `create_all` is not a migration framework, so M14 adds tables without automatic schema
 migration; use a clean/new MVP database. Admin bearer auth is not RBAC, key provisioning
 is an operational ceremony, identity does not prove detector correctness, scoring is
-heuristic, state/audit commits retain their crash window, clean audit-tail truncation
-needs a future checkpoint, and snapshots lack external timestamping/notarization.
+heuristic, checkpoints protect only through their retained head, and snapshots lack
+external timestamping/notarization.
+
+## Audit Durability and Signed Checkpoints
+
+`audit_outbox` stores canonical, SHA-256 committed `PENDING`/`DELIVERED` intent. Security
+state and intent share a transaction. Ordered recovery appends the legacy-compatible
+audit row and marks delivery atomically; startup, normal post-commit delivery, and the
+admin drain endpoint can recover pending work without duplicates. Integrity failures
+remain pending and make operational health degraded.
+
+Dedicated Ed25519 checkpoint keys use
+`audit_checkpoint_signing.private.pem`/`.public.pem` (ignored runtime files). The signing
+bytes are exactly `DRISHTI-TRUST:AUDIT-CHECKPOINT:v1\n` followed by canonical checkpoint
+JSON. `checkpoint_hash` is SHA-256 of that JSON, and each stored checkpoint names the
+previous payload hash. Missing/inconsistent keys fail closed; keys are generated only
+for a fresh database with no checkpoints.
+
+Routes include outbox status/admin drain; checkpoint create/list/latest/get; stored and
+external verification; and public-key export. Checkpoint creation rejects an empty audit
+chain and will not knowingly omit pending intents. External verification needs no
+checkpoint database row.
+
+An externally retained checkpoint detects deletion below its sequence, but cannot prove
+that records created after it survive. Retain the newest bundle and separately pin its
+public key/fingerprint outside SQLite. Total database destruction, checkpoint-private-key
+compromise, absent trusted timestamps/HSMs, bearer-only admin access, and `create_all`
+schema management remain known limitations.
 
 ## Security Principles and Limitations
 
@@ -456,15 +481,14 @@ needs a future checkpoint, and snapshots lack external timestamping/notarization
 - Digest match != behavioural safety. Semantic assessment belongs to Model Integrity.
 - No findings != successful assessment. Missing modules remain `UNKNOWN`.
 - Numeric assurance score != probability of compromise. It is a transparent heuristic.
-- Hash chain = tamper-evident, not tamper-proof. Clean tail truncation needs a trusted
-  external or signed checkpoint.
+- Hash chain = tamper-evident, not tamper-proof. A separately retained signed checkpoint
+  detects clean truncation only through its referenced sequence.
 
 The backend operates without Internet, cloud APIs, external databases, model services,
 blockchain networks, or arbitrary deserialization. Runtime signing keys and SQLite data
-remain local and are excluded from version control. Known limitations include the audit
-tail-truncation case, a small crash window between some security-state commits and their
-separate audit append, and the fact that cryptographic identity cannot establish model
-behavioural safety.
+remain local and are excluded from version control. Outbox intent durability does not
+survive total database destruction, and cryptographic identity cannot establish model
+behavioural safety or detector correctness.
 
 ## Test
 

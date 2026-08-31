@@ -4,7 +4,6 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
-from backend.api.audit import append_event
 from backend.api.dependencies import get_session
 from backend.api.auth import require_admin
 from backend.database.repository import ProducerKeyRepository, ProducerRepository
@@ -48,11 +47,8 @@ async def register_producer(
     except ProducerConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if result == "CREATED":
-        append_event(request, "PRODUCER_REGISTERED", "module_producer", producer.producer_id, {
-            "producer_id": producer.producer_id,
-            "module": producer.module,
-            "status": producer.status,
-        })
+        try: request.app.state.audit_outbox_service.drain_pending()
+        except Exception: pass
     return ProducerMutationResponse(result=result, producer=producer)
 
 
@@ -100,12 +96,8 @@ async def register_producer_key(
     except ProducerConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if result == "CREATED":
-        append_event(request, "PRODUCER_KEY_REGISTERED", "producer_key", key.key_id, {
-            "key_id": key.key_id,
-            "producer_id": key.producer_id,
-            "key_fingerprint": key.public_key_fingerprint,
-            "status": key.status,
-        })
+        try: request.app.state.audit_outbox_service.drain_pending()
+        except Exception: pass
     return ProducerKeyMutationResponse(result=result, key=key)
 
 
@@ -136,9 +128,8 @@ async def revoke_producer(
     except ProducerNotFound as exc:
         raise _not_found(exc) from exc
     if changed:
-        append_event(request, "PRODUCER_REVOKED", "module_producer", producer_id, {
-            "producer_id": producer_id, "module": producer.module, "status": producer.status,
-        })
+        try: request.app.state.audit_outbox_service.drain_pending()
+        except Exception: pass
     return ProducerMutationResponse(result="REVOKED", producer=producer)
 
 
@@ -156,10 +147,6 @@ async def revoke_producer_key(
     except ProducerNotFound as exc:
         raise _not_found(exc) from exc
     if changed:
-        append_event(request, "PRODUCER_KEY_REVOKED", "producer_key", key_id, {
-            "key_id": key_id,
-            "producer_id": producer_id,
-            "key_fingerprint": key.public_key_fingerprint,
-            "status": key.status,
-        })
+        try: request.app.state.audit_outbox_service.drain_pending()
+        except Exception: pass
     return ProducerKeyMutationResponse(result="REVOKED", key=key)

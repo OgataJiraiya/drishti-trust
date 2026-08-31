@@ -27,6 +27,7 @@ from backend.schemas.integration import (
     ModuleRunSubmission,
 )
 from backend.services.evidence_service import EvidenceService
+from backend.services.audit_outbox_service import AuditOutboxService
 
 
 class IntegrationConflict(ValueError):
@@ -57,6 +58,9 @@ class RunAuthentication:
 
 
 class IntegrationService:
+    def __init__(self, outbox: AuditOutboxService | None = None) -> None:
+        self.outbox = outbox
+
     def ingest_run(
         self,
         submission: ModuleRunSubmission,
@@ -155,6 +159,32 @@ class IntegrationService:
             membership_repository.add_pending(AssessmentRunMembershipRecord(
                 run_id=submission.run_id, assessment_id=submission.assessment_id
             ))
+        if self.outbox is not None:
+            for finding, _canonical in pending:
+                self.outbox.stage(session, f"EVIDENCE_CREATED:{finding.finding_id}",
+                    "EVIDENCE_CREATED", "finding", finding.finding_id, {
+                        "finding_id": finding.finding_id, "module": finding.module,
+                        "asset_type": finding.asset_type, "asset_id": finding.asset_id,
+                        "category": finding.category, "severity": finding.severity,
+                        "recommendation": finding.recommendation,
+                    })
+            auth_payload: dict[str, object] = {}
+            if authentication.mode == "ED25519":
+                auth_payload = {"authenticated": True, "key_id": authentication.key_id,
+                                "key_fingerprint": authentication.key_fingerprint}
+                auth_event = {"run_id": submission.run_id, "request_hash": request_hash,
+                    "module": submission.module, "producer": submission.producer, **auth_payload}
+                if submission.assessment_id is not None: auth_event["assessment_id"] = submission.assessment_id
+                self.outbox.stage(session, f"MODULE_RUN_AUTHENTICATED:{submission.run_id}",
+                    "MODULE_RUN_AUTHENTICATED", "module_run", submission.run_id, auth_event)
+            ingested = {"run_id": submission.run_id, "request_hash": request_hash,
+                "module": submission.module, "producer": submission.producer,
+                "producer_version": submission.producer_version,
+                "total_findings": len(submission.findings), "created_findings": len(pending),
+                "existing_findings": existing_count, **auth_payload}
+            if submission.assessment_id is not None: ingested["assessment_id"] = submission.assessment_id
+            self.outbox.stage(session, f"MODULE_RUN_INGESTED:{submission.run_id}",
+                "MODULE_RUN_INGESTED", "module_run", submission.run_id, ingested)
         try:
             session.commit()
         except IntegrityError as exc:

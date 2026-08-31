@@ -18,6 +18,7 @@ from backend.schemas.model import (
     ModelVerificationResponse,
     RegisterModelRequest,
 )
+from backend.services.audit_outbox_service import AuditOutboxService
 
 
 class ModelRegistrationConflict(ValueError):
@@ -33,6 +34,9 @@ def safe_filename(filename: str | None) -> str | None:
 
 
 class ModelRegistryService:
+    def __init__(self, outbox: AuditOutboxService | None = None) -> None:
+        self.outbox = outbox
+
     def register_digest(self, request: RegisterModelRequest, session: Session) -> ModelRegistrationResponse:
         return self._register(
             session=session,
@@ -100,7 +104,14 @@ class ModelRegistryService:
             metadata_json=canonical_json_text(metadata),
             registration_source=source,
         )
-        repository.add(record)
+        session.add(record)
+        if self.outbox:
+            payload = {"model_id": model_id, "expected_sha256": expected_sha256,
+                       "registration_source": source, "status": ModelStatus.APPROVED.value}
+            if artifact_size_bytes is not None: payload["artifact_size_bytes"] = artifact_size_bytes
+            self.outbox.stage(session, f"MODEL_REGISTERED:{model_id}", "MODEL_REGISTERED",
+                              "model", model_id, payload)
+        session.commit()
         return ModelRegistrationResponse(entry=self.to_schema(record), idempotent=False)
 
     def verify(self, model_id: str, observed_sha256: str, session: Session) -> ModelVerificationResponse:
@@ -151,10 +162,20 @@ class ModelRegistryService:
 
     def revoke(self, model_id: str, session: Session) -> ModelRegistryEntry | None:
         repository = ModelRegistryRepository(session)
+        session.execute(text("BEGIN IMMEDIATE"))
         record = repository.get(model_id)
         if record is None:
+            session.rollback()
             return None
-        repository.revoke(record)
+        if record.status != ModelStatus.REVOKED.value:
+            record.status = ModelStatus.REVOKED.value
+            if self.outbox:
+                self.outbox.stage(session, f"MODEL_REVOKED:{model_id}", "MODEL_REVOKED",
+                    "model", model_id, {"model_id": model_id,
+                    "expected_sha256": record.expected_sha256, "status": record.status})
+            session.commit()
+        else:
+            session.rollback()
         return self.to_schema(record)
 
     @staticmethod
