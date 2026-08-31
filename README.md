@@ -240,3 +240,39 @@ event and snapshot hash, without constituting external notarization.
 ## Deadline
 
 Target integrated working demo: **15 September 2026**.
+
+## Person-3 final integration quickstart
+
+Install the existing backend dependencies, choose a unique runtime administrator token,
+and start the loopback-only service:
+
+```bash
+python -m pip install -r backend/requirements.txt
+export DRISHTI_ADMIN_BEARER_TOKEN='replace-with-a-local-runtime-secret'
+./scripts/run_backend.sh
+```
+
+In a second terminal, run the complete four-module demonstration:
+
+```bash
+export DRISHTI_ADMIN_BEARER_TOKEN='the-same-local-runtime-secret'
+python scripts/demo_trust_pipeline.py
+```
+
+Module developers should begin with [docs/MODULE_INTEGRATION.md](docs/MODULE_INTEGRATION.md).
+The `drishti_sdk.DrishtiClient` builds and locally validates Finding v1, creates scoped
+module runs, reuses the backend's exact canonical Ed25519 signing helper, submits the
+existing signed-run envelope, and maps bounded HTTP errors to SDK exception types.
+
+Operator helpers are local and optional:
+
+```bash
+python -m backend.tools.bootstrap_producer --output-dir ./runtime/demo-keys
+python -m backend.tools.export_checkpoint --output ./runtime/latest-checkpoint.json
+python -m backend.tools.verify_checkpoint --checkpoint ./runtime/latest-checkpoint.json \
+  --public-key ./pinned/audit_checkpoint_signing.public.pem \
+  --base-url http://127.0.0.1:8000
+```
+
+The verification tool requires explicit pinned public-key material and never silently
+downloads a replacement trust root. Generated runtime files remain ignored by Git.
