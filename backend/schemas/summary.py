@@ -85,6 +85,9 @@ class FindingCounts(SeverityCounts):
 
 
 class AssuranceSummary(StrictSchema):
+    assessment_id: str | None = None
+    assessment_status: Literal["DRAFT", "ACTIVE", "SEALED"] | None = None
+    scope_mode: Literal["EXPLICIT_ASSESSMENT", "ACTIVE_ASSESSMENT", "GLOBAL_LEGACY"] = "GLOBAL_LEGACY"
     trust_scope: Literal["authenticated", "all"]
     trusted_finding_count: int
     excluded_untrusted_finding_count: int

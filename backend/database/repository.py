@@ -8,6 +8,9 @@ from sqlalchemy.orm import Session
 
 from backend.database.models import (
     AcceptedInferenceRecord,
+    AssessmentRecord,
+    AssessmentRunMembershipRecord,
+    AssessmentSnapshotRecord,
     AuditLogRecord,
     FindingRecord,
     InferenceReceiptRecord,
@@ -17,6 +20,81 @@ from backend.database.models import (
     ProducerKeyRecord,
     RegisteredModelRecord,
 )
+
+
+class AssessmentRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, assessment_id: str) -> AssessmentRecord | None:
+        return self.session.get(AssessmentRecord, assessment_id)
+
+    def active(self) -> AssessmentRecord | None:
+        return self.session.scalar(select(AssessmentRecord).where(AssessmentRecord.status == "ACTIVE").limit(1))
+
+    def add_pending(self, record: AssessmentRecord) -> None:
+        self.session.add(record)
+
+    def list(self, offset: int, limit: int, status: str | None = None) -> tuple[int, list[AssessmentRecord]]:
+        query = select(AssessmentRecord)
+        if status is not None:
+            query = query.where(AssessmentRecord.status == status)
+        total = int(self.session.scalar(select(func.count()).select_from(query.subquery())) or 0)
+        records = list(self.session.scalars(
+            query.order_by(AssessmentRecord.created_at, AssessmentRecord.assessment_id)
+            .offset(offset).limit(limit)
+        ))
+        return total, records
+
+
+class AssessmentMembershipRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, run_id: str) -> AssessmentRunMembershipRecord | None:
+        return self.session.get(AssessmentRunMembershipRecord, run_id)
+
+    def add_pending(self, record: AssessmentRunMembershipRecord) -> None:
+        self.session.add(record)
+
+    def runs(self, assessment_id: str, offset: int, limit: int) -> tuple[int, list[ModuleRunRecord]]:
+        query = (select(ModuleRunRecord)
+                 .join(AssessmentRunMembershipRecord,
+                       AssessmentRunMembershipRecord.run_id == ModuleRunRecord.run_id)
+                 .where(AssessmentRunMembershipRecord.assessment_id == assessment_id))
+        total = int(self.session.scalar(select(func.count()).select_from(query.subquery())) or 0)
+        records = list(self.session.scalars(
+            query.order_by(ModuleRunRecord.created_at, ModuleRunRecord.run_id).offset(offset).limit(limit)
+        ))
+        return total, records
+
+    def all_runs(self, assessment_id: str) -> list[ModuleRunRecord]:
+        return self.runs(assessment_id, 0, 1_000_000)[1]
+
+    def finding_ids(self, assessment_id: str, authentication_mode: str | None = None) -> set[str]:
+        query = (select(ModuleRunRecord.finding_ids_json)
+                 .join(AssessmentRunMembershipRecord,
+                       AssessmentRunMembershipRecord.run_id == ModuleRunRecord.run_id)
+                 .join(ModuleRunAuthenticationRecord,
+                       ModuleRunAuthenticationRecord.run_id == ModuleRunRecord.run_id)
+                 .where(
+                     AssessmentRunMembershipRecord.assessment_id == assessment_id,
+                     ModuleRunAuthenticationRecord.request_hash == ModuleRunRecord.request_hash,
+                 ))
+        if authentication_mode is not None:
+            query = query.where(ModuleRunAuthenticationRecord.authentication_mode == authentication_mode)
+        return {finding_id for encoded in self.session.scalars(query) for finding_id in json.loads(encoded)}
+
+
+class AssessmentSnapshotRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, assessment_id: str) -> AssessmentSnapshotRecord | None:
+        return self.session.get(AssessmentSnapshotRecord, assessment_id)
+
+    def add_pending(self, record: AssessmentSnapshotRecord) -> None:
+        self.session.add(record)
 
 
 class ReceiptRepository:

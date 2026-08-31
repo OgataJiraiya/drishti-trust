@@ -11,8 +11,10 @@ from sqlalchemy.orm import Session
 
 from backend.core.canonical import canonical_json_text
 from backend.core.hashing import sha256_bytes
-from backend.database.models import ModuleRunAuthenticationRecord, ModuleRunRecord
+from backend.database.models import AssessmentRunMembershipRecord, ModuleRunAuthenticationRecord, ModuleRunRecord
 from backend.database.repository import (
+    AssessmentMembershipRepository,
+    AssessmentRepository,
     EvidenceRepository,
     ModuleRunAuthenticationRepository,
     ModuleRunRepository,
@@ -29,6 +31,14 @@ from backend.services.evidence_service import EvidenceService
 
 class IntegrationConflict(ValueError):
     """An immutable run or finding identity was submitted with changed content."""
+
+
+class AssessmentNotFound(ValueError):
+    pass
+
+
+class AssessmentNotActive(ValueError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -53,7 +63,10 @@ class IntegrationService:
         session: Session,
         authentication: RunAuthentication,
     ) -> IntegrationIngestResult:
-        request_json = canonical_json_text(submission.model_dump(mode="json"))
+        request_payload = submission.model_dump(mode="json")
+        if request_payload["assessment_id"] is None:
+            del request_payload["assessment_id"]
+        request_json = canonical_json_text(request_payload)
         request_hash = sha256_bytes(request_json.encode("utf-8"))
         finding_ids = [finding.finding_id for finding in submission.findings]
 
@@ -61,11 +74,24 @@ class IntegrationService:
         session.execute(text("BEGIN IMMEDIATE"))
         run_repository = ModuleRunRepository(session)
         evidence_repository = EvidenceRepository(session)
+        membership_repository = AssessmentMembershipRepository(session)
+        if submission.assessment_id is not None:
+            assessment = AssessmentRepository(session).get(submission.assessment_id)
+            if assessment is None:
+                session.rollback()
+                raise AssessmentNotFound("Assessment not found")
+            if assessment.status != "ACTIVE":
+                session.rollback()
+                raise AssessmentNotActive("Assessment is not ACTIVE")
         existing_run = run_repository.get(submission.run_id)
         if existing_run is not None:
             if existing_run.request_hash != request_hash or existing_run.request_json != request_json:
                 session.rollback()
                 raise IntegrationConflict("run_id already exists with different immutable submission content")
+            membership = membership_repository.get(submission.run_id)
+            if (membership.assessment_id if membership else None) != submission.assessment_id:
+                session.rollback()
+                raise IntegrationConflict("run_id assessment membership is internally inconsistent")
             response = ModuleRunIngestionResponse(
                 run_id=submission.run_id,
                 module=submission.module,
@@ -125,6 +151,10 @@ class IntegrationService:
             key_fingerprint=authentication.key_fingerprint,
             request_hash=request_hash,
         ))
+        if submission.assessment_id is not None:
+            membership_repository.add_pending(AssessmentRunMembershipRecord(
+                run_id=submission.run_id, assessment_id=submission.assessment_id
+            ))
         try:
             session.commit()
         except IntegrityError as exc:
@@ -161,6 +191,11 @@ class IntegrationService:
             authenticated_at = authenticated_at.replace(tzinfo=timezone.utc)
         return ModuleRunDetails(
             run_id=record.run_id,
+            assessment_id=(
+                membership.assessment_id
+                if (membership := AssessmentMembershipRepository(session).get(record.run_id))
+                else None
+            ),
             module=record.module,
             producer=record.producer,
             producer_version=record.producer_version,

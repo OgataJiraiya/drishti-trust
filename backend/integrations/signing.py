@@ -8,7 +8,12 @@ from backend.schemas.integration import ModuleRunSubmission
 
 def module_run_signing_bytes(run: ModuleRunSubmission) -> bytes:
     """Return the exact bytes authenticated by the signed-run endpoint."""
-    return canonical_json_bytes(run.model_dump(mode="json"))
+    payload = run.model_dump(mode="json")
+    # Preserve pre-M14 canonical bytes for legacy runs while binding the field
+    # whenever an assessment is explicitly supplied.
+    if payload["assessment_id"] is None:
+        del payload["assessment_id"]
+    return canonical_json_bytes(payload)
 
 
 def sign_module_run(run: ModuleRunSubmission, private_key: Ed25519PrivateKey) -> str:

@@ -21,7 +21,11 @@ from backend.core.assurance_policy import (
     strongest_disposition,
     system_effect_for_finding,
 )
-from backend.database.repository import EvidenceRepository, ModuleRunAuthenticationRepository
+from backend.database.repository import (
+    AssessmentMembershipRepository,
+    EvidenceRepository,
+    ModuleRunAuthenticationRepository,
+)
 from backend.schemas.common import FindingModule, Recommendation, Severity
 from backend.schemas.evidence import Finding
 from backend.schemas.summary import (
@@ -42,12 +46,21 @@ from backend.services.evidence_service import EvidenceService
 
 class SummaryService:
     def build(
-        self, session: Session, audit_service: AuditService, trust_scope: str = "authenticated"
+        self, session: Session, audit_service: AuditService, trust_scope: str = "authenticated",
+        assessment_id: str | None = None, assessment_status: str | None = None,
+        scope_mode: str = "GLOBAL_LEGACY",
     ) -> AssuranceSummary:
         records = EvidenceRepository(session).all_ingestion_order()
-        trusted_ids = ModuleRunAuthenticationRepository(session).authenticated_finding_ids()
-        trusted_count = sum(record.finding_id in trusted_ids for record in records)
-        excluded_count = len(records) - trusted_count
+        if assessment_id is None:
+            eligible_ids = {record.finding_id for record in records}
+            trusted_ids = ModuleRunAuthenticationRepository(session).authenticated_finding_ids()
+        else:
+            memberships = AssessmentMembershipRepository(session)
+            eligible_ids = memberships.finding_ids(assessment_id)
+            trusted_ids = memberships.finding_ids(assessment_id, "ED25519")
+            records = [record for record in records if record.finding_id in eligible_ids]
+        trusted_count = len(eligible_ids & trusted_ids)
+        excluded_count = len(eligible_ids - trusted_ids)
         selected_records = (
             records if trust_scope == "all"
             else [record for record in records if record.finding_id in trusted_ids]
@@ -126,6 +139,9 @@ class SummaryService:
                     limitations.append(limitation)
 
         return AssuranceSummary(
+            assessment_id=assessment_id,
+            assessment_status=assessment_status,
+            scope_mode=scope_mode,
             trust_scope=trust_scope,
             trusted_finding_count=trusted_count,
             excluded_untrusted_finding_count=excluded_count,
