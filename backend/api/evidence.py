@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from backend.api.audit import append_event
 from backend.api.dependencies import get_session
+from backend.api.auth import require_trusted_internal_ingest
 from backend.database.repository import EvidenceRepository
 from backend.schemas.common import FindingModule, Recommendation, Severity
 from backend.schemas.evidence import EvidenceIngestionResponse, EvidenceListResponse, Finding
@@ -23,13 +24,16 @@ async def get_service(request: Request) -> EvidenceService:
     response_model=EvidenceIngestionResponse,
     summary="Ingest one immutable Finding Schema v1 document",
     description=(
-        "The ten-field Finding body is the frozen team contract. Identical resubmission is "
+        "Disabled by default trusted-internal compatibility path requiring explicit enablement "
+        "and the internal bearer credential; normal modules must use signed-runs. The ten-field "
+        "Finding body is the frozen team contract. Identical resubmission is "
         "idempotent; changing an existing finding ID returns HTTP 409."
     ),
 )
 async def ingest_finding(
     body: Finding,
     request: Request,
+    _authorization: None = Depends(require_trusted_internal_ingest),
     session: Session = Depends(get_session),
     service: EvidenceService = Depends(get_service),
 ) -> EvidenceIngestionResponse:

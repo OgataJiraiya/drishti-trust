@@ -12,7 +12,13 @@ from backend.main import create_app
 
 @pytest.fixture
 def test_settings(tmp_path):
-    return Settings(data_dir=tmp_path / "data", key_dir=tmp_path / "keys")
+    return Settings(
+        data_dir=tmp_path / "data",
+        key_dir=tmp_path / "keys",
+        admin_bearer_token="TEST-RUNTIME-BEARER",
+        internal_ingest_bearer_token="TEST-RUNTIME-BEARER",
+        allow_unsigned_ingestion=True,
+    )
 
 
 @pytest.fixture
@@ -22,7 +28,17 @@ def app(test_settings):
 
 @pytest.fixture
 async def client(app):
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as test_client:
+    async def legacy_summary_scope(request: httpx.Request) -> None:
+        # Pre-M13.1 scoring tests intentionally exercise the compatibility/all view.
+        if request.url.path == "/api/summary" and not request.url.query:
+            request.url = request.url.copy_with(query=b"trust_scope=all")
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": "Bearer TEST-RUNTIME-BEARER"},
+        event_hooks={"request": [legacy_summary_scope]},
+    ) as test_client:
         yield test_client
 
 

@@ -267,7 +267,7 @@ async def test_summary_survives_database_reopen(client, test_settings):
     expected = (await client.get("/api/summary")).json()
     reopened = create_app(test_settings)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=reopened), base_url="http://reopened") as new_client:
-        actual = (await new_client.get("/api/summary")).json()
+        actual = (await new_client.get("/api/summary?trust_scope=all")).json()
     expected.pop("generated_at")
     actual.pop("generated_at")
     assert actual == expected

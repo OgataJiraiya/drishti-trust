@@ -98,6 +98,61 @@ See `CONTRIBUTING.md` and `docs/TEAM_WORKFLOW.md` before starting.
 - Preserve model/data formats without unsafe deserialization where verification only requires hashing
 - Keep the audit trail tamper-evident and limitations explicit
 
+## Local API startup
+
+Run the backend from the repository root. On first use, install its dependencies and
+start Uvicorn through the active Python interpreter so the command does not depend on a
+standalone `uvicorn` executable being on `PATH`:
+
+```bash
+cd /home/kali/drishti-trust
+python -m pip install -r backend/requirements.txt
+export DRISHTI_ADMIN_BEARER_TOKEN="replace-with-runtime-secret"
+python -m uvicorn backend.main:app \
+  --host 127.0.0.1 \
+  --port 8000
+```
+
+The API is at `http://127.0.0.1:8000`, Swagger documentation at `/docs`, and the health
+check at `/health`. On first startup the application creates its local SQLite database
+under `backend/data/` and a receipt-signing Ed25519 key pair under `backend/keys/`.
+These runtime artifacts are ignored and must not be committed. Production/offline
+deployments must provision and protect signing keys through their own trust ceremony.
+
+## Trust Boundary and Access Control
+
+The normal module path is `module -> Ed25519 -> POST /api/integration/signed-runs`.
+Producer and active-key authorization, the signature, and the complete canonical run
+are verified before atomic ingestion. Signed submissions do not use either bearer token.
+
+Producer/key registration and revocation require a runtime administrator bearer set in
+`DRISHTI_ADMIN_BEARER_TOKEN`. No default credential exists; if it is unconfigured,
+administrative mutations fail closed with HTTP 503. The token is neither stored in
+SQLite nor placed in responses or audit payloads.
+
+`POST /api/integration/runs` and `POST /api/evidence` are trusted-internal compatibility
+APIs, not the normal provenance path. They are disabled by default. To enable them,
+both settings below are required, and callers must supply the internal bearer:
+
+```bash
+export DRISHTI_ALLOW_UNSIGNED_INGESTION="true"
+export DRISHTI_INTERNAL_INGEST_BEARER_TOKEN="replace-with-separate-runtime-secret"
+```
+
+`GET /api/summary` defaults to the trusted assurance view: only exact findings attested
+by successful Ed25519 module runs contribute. It reports trusted and excluded-untrusted
+counts. `GET /api/summary?trust_scope=all` is an explicit diagnostic view that includes
+trusted-internal/direct evidence and must not be interpreted as an authenticated
+assurance boundary.
+
+This bearer control is MVP access control, not multi-user RBAC. Runtime bearer
+provisioning remains an operational trust ceremony. Possession of an approved producer
+private key authenticates producer identity and exact bytes, not detector correctness.
+Audit appends remain post-state transactions, and clean audit-tail truncation needs a
+future external/signed checkpoint. SQLAlchemy `create_all` is not a migration system.
+Assurance scoring remains heuristic; there is no assessment/snapshot lifecycle, so
+historical authenticated findings accumulate until Milestone 14 adds assessment scope.
+
 ## Deadline
 
 Target integrated working demo: **15 September 2026**.

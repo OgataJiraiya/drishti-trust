@@ -54,6 +54,17 @@ class ModuleRunDetails(StrictSchema):
     existing_findings: int
     finding_ids: list[str]
     created_at: datetime
+    authentication: "ModuleRunAuthentication"
+
+
+class ModuleRunAuthentication(StrictSchema):
+    authenticated: bool
+    mode: Literal["ED25519", "TRUSTED_INTERNAL"]
+    producer_id: str
+    key_id: str | None
+    key_fingerprint: str | None
+    request_hash: str = Field(pattern=HEX_64)
+    authenticated_at: datetime
 
 
 class ModuleRunIngestionResponse(StrictSchema):

@@ -11,11 +11,16 @@ from sqlalchemy.orm import Session
 
 from backend.core.canonical import canonical_json_text
 from backend.core.hashing import sha256_bytes
-from backend.database.models import ModuleRunRecord
-from backend.database.repository import EvidenceRepository, ModuleRunRepository
+from backend.database.models import ModuleRunAuthenticationRecord, ModuleRunRecord
+from backend.database.repository import (
+    EvidenceRepository,
+    ModuleRunAuthenticationRepository,
+    ModuleRunRepository,
+)
 from backend.schemas.evidence import Finding
 from backend.schemas.integration import (
     ModuleRunDetails,
+    ModuleRunAuthentication,
     ModuleRunIngestionResponse,
     ModuleRunSubmission,
 )
@@ -30,10 +35,24 @@ class IntegrationConflict(ValueError):
 class IntegrationIngestResult:
     response: ModuleRunIngestionResponse
     created_findings: list[Finding]
+    request_hash: str
+
+
+@dataclass(frozen=True)
+class RunAuthentication:
+    mode: str
+    producer_id: str
+    key_id: str | None = None
+    key_fingerprint: str | None = None
 
 
 class IntegrationService:
-    def ingest_run(self, submission: ModuleRunSubmission, session: Session) -> IntegrationIngestResult:
+    def ingest_run(
+        self,
+        submission: ModuleRunSubmission,
+        session: Session,
+        authentication: RunAuthentication,
+    ) -> IntegrationIngestResult:
         request_json = canonical_json_text(submission.model_dump(mode="json"))
         request_hash = sha256_bytes(request_json.encode("utf-8"))
         finding_ids = [finding.finding_id for finding in submission.findings]
@@ -59,7 +78,9 @@ class IntegrationService:
                 finding_ids=finding_ids,
             )
             session.rollback()
-            return IntegrationIngestResult(response=response, created_findings=[])
+            return IntegrationIngestResult(
+                response=response, created_findings=[], request_hash=request_hash
+            )
 
         pending: list[tuple[Finding, str]] = []
         existing_count = 0
@@ -93,6 +114,17 @@ class IntegrationService:
             existing_count=existing_count,
             finding_ids_json=canonical_json_text(finding_ids),
         ))
+        # These models intentionally have no ORM relationship; flush the parent
+        # explicitly so SQLite's foreign-key check cannot observe child-first order.
+        session.flush()
+        ModuleRunAuthenticationRepository(session).add_pending(ModuleRunAuthenticationRecord(
+            run_id=submission.run_id,
+            authentication_mode=authentication.mode,
+            producer_id=authentication.producer_id,
+            key_id=authentication.key_id,
+            key_fingerprint=authentication.key_fingerprint,
+            request_hash=request_hash,
+        ))
         try:
             session.commit()
         except IntegrityError as exc:
@@ -113,13 +145,20 @@ class IntegrationService:
         return IntegrationIngestResult(
             response=response,
             created_findings=[finding for finding, _canonical in pending],
+            request_hash=request_hash,
         )
 
     @staticmethod
-    def to_details(record: ModuleRunRecord) -> ModuleRunDetails:
+    def to_details(record: ModuleRunRecord, session: Session) -> ModuleRunDetails:
         created_at = record.created_at
         if created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=timezone.utc)
+        auth_record = ModuleRunAuthenticationRepository(session).get(record.run_id)
+        if auth_record is None:
+            raise RuntimeError(f"Module run {record.run_id!r} has no authentication provenance")
+        authenticated_at = auth_record.authenticated_at
+        if authenticated_at.tzinfo is None:
+            authenticated_at = authenticated_at.replace(tzinfo=timezone.utc)
         return ModuleRunDetails(
             run_id=record.run_id,
             module=record.module,
@@ -131,4 +170,13 @@ class IntegrationService:
             existing_findings=record.existing_count,
             finding_ids=json.loads(record.finding_ids_json),
             created_at=created_at,
+            authentication=ModuleRunAuthentication(
+                authenticated=auth_record.authentication_mode == "ED25519",
+                mode=auth_record.authentication_mode,
+                producer_id=auth_record.producer_id,
+                key_id=auth_record.key_id,
+                key_fingerprint=auth_record.key_fingerprint,
+                request_hash=auth_record.request_hash,
+                authenticated_at=authenticated_at,
+            ),
         )

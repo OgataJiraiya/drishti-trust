@@ -85,6 +85,9 @@ class FindingCounts(SeverityCounts):
 
 
 class AssuranceSummary(StrictSchema):
+    trust_scope: Literal["authenticated", "all"]
+    trusted_finding_count: int
+    excluded_untrusted_finding_count: int
     generated_at: datetime
     overall: OverallAssurance
     modules: dict[FindingModule, ModuleAssurance]
