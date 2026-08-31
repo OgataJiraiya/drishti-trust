@@ -36,8 +36,8 @@ def test_load_yolo(tmp_path):
 
     assert len(samples) == 2
 
-    assert samples[0]["sample_id"] == "img_001"
+    assert samples[0]["sample_id"] == "img_001.jpg"
     assert samples[0]["labels"] == ["car", "person"]
 
-    assert samples[1]["sample_id"] == "img_002"
+    assert samples[1]["sample_id"] == "img_002.jpg"
     assert samples[1]["labels"] == ["bicycle"]
