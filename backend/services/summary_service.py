@@ -21,7 +21,7 @@ from backend.core.assurance_policy import (
     strongest_disposition,
     system_effect_for_finding,
 )
-from backend.database.repository import EvidenceRepository
+from backend.database.repository import EvidenceRepository, ModuleRunAuthenticationRepository
 from backend.schemas.common import FindingModule, Recommendation, Severity
 from backend.schemas.evidence import Finding
 from backend.schemas.summary import (
@@ -41,9 +41,18 @@ from backend.services.evidence_service import EvidenceService
 
 
 class SummaryService:
-    def build(self, session: Session, audit_service: AuditService) -> AssuranceSummary:
+    def build(
+        self, session: Session, audit_service: AuditService, trust_scope: str = "authenticated"
+    ) -> AssuranceSummary:
         records = EvidenceRepository(session).all_ingestion_order()
-        findings = [EvidenceService.to_schema(record) for record in records]
+        trusted_ids = ModuleRunAuthenticationRepository(session).authenticated_finding_ids()
+        trusted_count = sum(record.finding_id in trusted_ids for record in records)
+        excluded_count = len(records) - trusted_count
+        selected_records = (
+            records if trust_scope == "all"
+            else [record for record in records if record.finding_id in trusted_ids]
+        )
+        findings = [EvidenceService.to_schema(record) for record in selected_records]
         modules: dict[FindingModule, ModuleAssurance] = {}
         exact_scores: dict[FindingModule, Decimal] = {}
         assessed_weight = Decimal("0")
@@ -117,6 +126,9 @@ class SummaryService:
                     limitations.append(limitation)
 
         return AssuranceSummary(
+            trust_scope=trust_scope,
+            trusted_finding_count=trusted_count,
+            excluded_untrusted_finding_count=excluded_count,
             generated_at=datetime.now(timezone.utc),
             overall=OverallAssurance(
                 assurance_score=overall_score,

@@ -3,9 +3,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
-from backend.api import audit, evidence, health, inference, integration, models, summary
+from backend.api import (
+    audit,
+    evidence,
+    health,
+    inference,
+    integration,
+    models,
+    module_auth,
+    producers,
+    summary,
+)
 from backend.core.config import Settings, settings as default_settings
 from backend.core.signing import generate_key_pair, load_private_key, load_public_key
 from backend.database.db import create_sqlite_engine, initialize, session_factory
@@ -15,6 +27,8 @@ from backend.services.audit_service import AuditService
 from backend.services.evidence_service import EvidenceService
 from backend.services.summary_service import SummaryService
 from backend.services.integration_service import IntegrationService
+from backend.services.module_auth_service import ModuleAuthService
+from backend.services.producer_service import ProducerService
 
 
 def create_app(settings: Settings = default_settings) -> FastAPI:
@@ -51,6 +65,30 @@ def create_app(settings: Settings = default_settings) -> FastAPI:
     app.state.evidence_service = EvidenceService()
     app.state.summary_service = SummaryService()
     app.state.integration_service = IntegrationService()
+    app.state.producer_service = ProducerService()
+    app.state.module_auth_service = ModuleAuthService()
+
+    @app.exception_handler(RequestValidationError)
+    async def bounded_validation_error(
+        _request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        errors = exc.errors()
+        bounded = [
+            {
+                "loc": list(error.get("loc", ())),
+                "msg": error.get("msg", "Request validation failed"),
+                "type": error.get("type", "validation_error"),
+            }
+            for error in errors[:20]
+        ]
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": bounded,
+                "error_count": len(errors),
+                "errors_returned": len(bounded),
+            },
+        )
     app.include_router(health.router)
     app.include_router(inference.router)
     app.include_router(models.router)
@@ -58,6 +96,8 @@ def create_app(settings: Settings = default_settings) -> FastAPI:
     app.include_router(evidence.router)
     app.include_router(summary.router)
     app.include_router(integration.router)
+    app.include_router(module_auth.router)
+    app.include_router(producers.router)
     return app
 
 

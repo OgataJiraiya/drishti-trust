@@ -5,18 +5,35 @@ vertical slices: canonical SHA-256 digests, Ed25519-signed task-agnostic inferen
 receipts, durable SQLite storage, evidence-based integrity verification, and atomic
 freshness/replay enforcement.
 
-## Run locally (no Internet required)
+## Run locally
 
-From `/home/kali`, using an environment where `backend/requirements.txt` is installed:
+From the repository root, install dependencies once and invoke Uvicorn as a Python
+module. Administrative credentials are runtime-only and have no source-code default:
 
 ```bash
-uvicorn backend.main:app --host 127.0.0.1 --port 8000
+cd /home/kali/drishti-trust
+python -m pip install -r backend/requirements.txt
+export DRISHTI_ADMIN_BEARER_TOKEN="replace-with-runtime-secret"
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
-Swagger is available at `http://127.0.0.1:8000/docs`. Runtime uses only local files:
+The API is `http://127.0.0.1:8000`; Swagger is at `/docs` and health at `/health`.
+Runtime uses only local files:
 `backend/data/provenance.sqlite3` and the Ed25519 development keys in `backend/keys/`.
 Private key files are ignored. Production must provision keys through an appropriate
 secure offline key-management process or HSM.
+
+Unsigned compatibility ingestion and direct evidence mutation are disabled by default.
+Only a deliberate trusted-internal deployment may enable both settings:
+
+```bash
+export DRISHTI_ALLOW_UNSIGNED_INGESTION="true"
+export DRISHTI_INTERNAL_INGEST_BEARER_TOKEN="replace-with-separate-runtime-secret"
+```
+
+The preferred module integration endpoint is `/api/integration/signed-runs`, which uses
+Ed25519 producer authentication and requires no bearer credential. See the root README
+section “Trust Boundary and Access Control” for the complete boundary and limitations.
 
 ## Inference API
 
@@ -191,7 +208,7 @@ one bounded supporting string for a substantive finding. Limitations are also an
 string list and may be empty when no additional limitation applies. No timestamp or
 database metadata is required or returned as part of the shared contract.
 
-Evidence endpoints:
+Evidence endpoints (`POST` is a disabled-by-default trusted-internal compatibility API):
 
 - `POST /api/evidence` ingests one Finding document.
 - `GET /api/evidence` lists findings with pagination and optional module, asset type,
@@ -301,9 +318,11 @@ state, model state, or persistent summary table.
 
 ## Cross-Module Integration Gate
 
-All four detector modules submit batches through one strict, detector-agnostic boundary:
+All four detector modules should submit signed batches through the authenticated module
+boundary. The unsigned route remains only for explicitly enabled compatibility use:
 
-- `POST /api/integration/runs` validates and ingests a module run.
+- `POST /api/integration/signed-runs` authenticates and atomically ingests a module run.
+- `POST /api/integration/runs` is the disabled-by-default trusted-internal route.
 - `GET /api/integration/runs/{run_id}` retrieves immutable run metadata.
 - `GET /api/integration/runs` lists runs with pagination and optional module filtering.
 
@@ -334,6 +353,70 @@ integration transaction in separate serialized transactions. A process failure i
 small post-commit window can therefore leave committed security state without its audit
 event; the gate does not claim cross-transaction atomicity that SQLite does not provide
 in the current architecture.
+
+## Authenticated Module Provenance
+
+The authenticated integration boundary closes the trust gap in a self-declared
+`producer` string. Administrators register an approved producer with exactly one module,
+then register one or more Ed25519 **public** keys for it. The backend never requests or
+stores producer private keys.
+
+Producer administration endpoints are:
+
+- `POST /api/producers`, `GET /api/producers`, and `GET /api/producers/{producer_id}`;
+- `POST /api/producers/{producer_id}/keys` and `GET /api/producers/{producer_id}/keys`;
+- `POST /api/producers/{producer_id}/revoke`;
+- `POST /api/producers/{producer_id}/keys/{key_id}/revoke`.
+
+Public-key registration parses the PEM as an Ed25519 public key, rewrites it to canonical
+SubjectPublicKeyInfo PEM, and fingerprints the 32 raw public-key bytes with SHA-256. It
+rejects private keys, malformed PEM, other algorithms, changed immutable key IDs, and
+cross-producer key reuse. Producers have `APPROVED`/`REVOKED` status; keys have
+`ACTIVE`/`REVOKED` status. Revoking one key leaves other active rotation keys usable,
+while revoking a producer disables every future submission without deleting history.
+
+Modules submit the strict wrapper `{run, key_id, signature}` to
+`POST /api/integration/signed-runs`. Signing bytes are exactly:
+
+```text
+canonical_json_bytes(run.model_dump(mode="json"))
+```
+
+The existing request hash is SHA-256 over those same bytes. Finding order therefore
+remains signed and semantically significant. The service checks producer existence and
+approval, exact producer/module binding, key ownership and active status, raw-key
+fingerprint consistency, base64 encoding, and the Ed25519 signature before invoking the
+existing atomic integration transaction. Authentication failures create no findings,
+module run, or success audit events.
+
+Module-side Python signing uses the shared helper, avoiding divergent serialization:
+
+```python
+from backend.integrations.signing import sign_module_run
+from backend.schemas.integration import ModuleRunSubmission
+
+run = ModuleRunSubmission.model_validate(run_document)
+signature = sign_module_run(run, private_key)  # private_key stays with the module
+signed_document = {"run": run.model_dump(mode="json"), "key_id": key_id,
+                   "signature": signature}
+```
+
+New authenticated runs emit bounded `MODULE_RUN_AUTHENTICATED` evidence and an enriched
+`MODULE_RUN_INGESTED` event containing the exact stored `request_hash`, key ID, raw-key
+fingerprint, and `authenticated=true`. Neither signatures nor public/private key material
+is copied into audit payloads. Exact reruns remain idempotent and do not duplicate these
+success events.
+
+`POST /api/integration/runs` remains available for backward-compatible internal/trusted
+ingestion but does not establish producer authenticity. External module handoff should
+use the signed endpoint. Finding Schema v1 is unchanged; all authentication metadata is
+outside its frozen envelope.
+
+Operational limitations: producer administration routes do not yet have administrator
+RBAC; offline key provisioning is a trust ceremony; possession of an approved private
+key authenticates producer identity but not detector correctness; and key compromise
+requires explicit durable revocation. Registry/integration state and audit append remain
+consecutive transactions with the previously documented small crash window.
 
 ## Security Principles and Limitations
 

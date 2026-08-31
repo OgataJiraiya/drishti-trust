@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -113,3 +113,53 @@ class ModuleRunRecord(Base):
     existing_count: Mapped[int] = mapped_column(Integer, nullable=False)
     finding_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class ModuleRunAuthenticationRecord(Base):
+    """Durable run trust provenance, kept outside Finding Schema v1."""
+
+    __tablename__ = "module_run_authentication"
+
+    run_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("module_runs.run_id"), primary_key=True
+    )
+    authentication_mode: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    producer_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    key_id: Mapped[str | None] = mapped_column(String(128))
+    key_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    request_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    authenticated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class ModuleProducerRecord(Base):
+    """Approved identity allowed to submit findings for exactly one module."""
+
+    __tablename__ = "module_producers"
+
+    producer_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    module: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), index=True, nullable=False, default="APPROVED")
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+
+class ProducerKeyRecord(Base):
+    """Public Ed25519 verification key; producer private keys are never stored."""
+
+    __tablename__ = "producer_keys"
+
+    key_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    producer_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("module_producers.producer_id"), index=True, nullable=False
+    )
+    public_key_pem: Mapped[str] = mapped_column(Text, nullable=False)
+    public_key_fingerprint: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), index=True, nullable=False, default="ACTIVE")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

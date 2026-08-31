@@ -6,6 +6,8 @@ from copy import deepcopy
 import pytest
 from sqlalchemy import func, select
 
+from backend.core.canonical import canonical_json_bytes
+from backend.core.hashing import sha256_bytes
 from backend.database.models import AuditLogRecord, FindingRecord, ModuleRunRecord
 from backend.schemas.evidence import Finding
 from backend.tests.test_evidence import dataset_finding, drift_finding, inference_finding, model_finding
@@ -232,6 +234,7 @@ async def test_successful_run_audit_payload_and_chain_are_valid(client):
     assert event["asset_type"] == "module_run" and event["asset_id"] == "RUN-DATA-0001"
     assert event["payload"] == {
         "run_id": "RUN-DATA-0001",
+        "request_hash": sha256_bytes(canonical_json_bytes(body)),
         "module": "dataset_integrity",
         "producer": "data-integrity",
         "producer_version": "0.1.0",

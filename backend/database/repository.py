@@ -1,10 +1,22 @@
 """Transactional receipt repository."""
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.database.models import AuditLogRecord, AcceptedInferenceRecord, FindingRecord, InferenceReceiptRecord, ModuleRunRecord, RegisteredModelRecord
+from backend.database.models import (
+    AcceptedInferenceRecord,
+    AuditLogRecord,
+    FindingRecord,
+    InferenceReceiptRecord,
+    ModuleProducerRecord,
+    ModuleRunAuthenticationRecord,
+    ModuleRunRecord,
+    ProducerKeyRecord,
+    RegisteredModelRecord,
+)
 
 
 class ReceiptRepository:
@@ -182,3 +194,73 @@ class ModuleRunRepository:
             query.order_by(ModuleRunRecord.created_at, ModuleRunRecord.run_id).offset(offset).limit(limit)
         ))
         return total, records
+
+
+class ModuleRunAuthenticationRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, run_id: str) -> ModuleRunAuthenticationRecord | None:
+        return self.session.get(ModuleRunAuthenticationRecord, run_id)
+
+    def add_pending(self, record: ModuleRunAuthenticationRecord) -> None:
+        self.session.add(record)
+
+    def authenticated_finding_ids(self) -> set[str]:
+        runs = self.session.execute(
+            select(ModuleRunRecord.finding_ids_json)
+            .join(
+                ModuleRunAuthenticationRecord,
+                ModuleRunAuthenticationRecord.run_id == ModuleRunRecord.run_id,
+            )
+            .where(
+                ModuleRunAuthenticationRecord.authentication_mode == "ED25519",
+                ModuleRunAuthenticationRecord.request_hash == ModuleRunRecord.request_hash,
+            )
+        ).scalars()
+        return {finding_id for encoded in runs for finding_id in json.loads(encoded)}
+
+
+class ProducerRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, producer_id: str) -> ModuleProducerRecord | None:
+        return self.session.get(ModuleProducerRecord, producer_id)
+
+    def add_pending(self, record: ModuleProducerRecord) -> None:
+        self.session.add(record)
+
+    def list(self, offset: int, limit: int) -> tuple[int, list[ModuleProducerRecord]]:
+        total = int(self.session.scalar(select(func.count()).select_from(ModuleProducerRecord)) or 0)
+        records = list(self.session.scalars(
+            select(ModuleProducerRecord)
+            .order_by(ModuleProducerRecord.created_at, ModuleProducerRecord.producer_id)
+            .offset(offset).limit(limit)
+        ))
+        return total, records
+
+
+class ProducerKeyRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get(self, key_id: str) -> ProducerKeyRecord | None:
+        return self.session.get(ProducerKeyRecord, key_id)
+
+    def by_fingerprint(self, fingerprint: str) -> ProducerKeyRecord | None:
+        return self.session.scalar(
+            select(ProducerKeyRecord).where(
+                ProducerKeyRecord.public_key_fingerprint == fingerprint
+            ).limit(1)
+        )
+
+    def add_pending(self, record: ProducerKeyRecord) -> None:
+        self.session.add(record)
+
+    def list_for_producer(self, producer_id: str) -> list[ProducerKeyRecord]:
+        return list(self.session.scalars(
+            select(ProducerKeyRecord)
+            .where(ProducerKeyRecord.producer_id == producer_id)
+            .order_by(ProducerKeyRecord.created_at, ProducerKeyRecord.key_id)
+        ))
