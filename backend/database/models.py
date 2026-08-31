@@ -77,6 +77,51 @@ class AuditLogRecord(Base):
     current_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
 
 
+class AuditOutboxRecord(Base):
+    """Immutable durable audit intent, delivered atomically with its audit record."""
+
+    __tablename__ = "audit_outbox"
+
+    outbox_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_key: Mapped[str] = mapped_column(String(256), unique=True, index=True, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    asset_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    asset_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), index=True, nullable=False, default="PENDING")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_audit_id: Mapped[str | None] = mapped_column(String(32), unique=True)
+
+
+class AuditOutboxDeliveryRecord(Base):
+    """Additive one-to-one linkage, avoiding alteration of the legacy audit table."""
+
+    __tablename__ = "audit_outbox_deliveries"
+    outbox_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("audit_outbox.outbox_id"), primary_key=True
+    )
+    audit_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("audit_log.audit_id"), unique=True, nullable=False
+    )
+
+
+class AuditCheckpointRecord(Base):
+    __tablename__ = "audit_checkpoints"
+
+    checkpoint_id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    audit_sequence: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    audit_record_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    audit_record_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    checkpoint_payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    checkpoint_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    signature: Mapped[str] = mapped_column(Text, nullable=False)
+    signing_key_fingerprint: Mapped[str] = mapped_column(String(80), nullable=False)
+    previous_checkpoint_hash: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class FindingRecord(Base):
     """Immutable persisted copy of the frozen cross-team Finding JSON."""
 

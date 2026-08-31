@@ -6,7 +6,6 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
-from backend.api.audit import append_event
 from backend.api.auth import require_admin
 from backend.api.dependencies import get_session
 from backend.database.repository import (
@@ -33,8 +32,8 @@ async def create_assessment(body: AssessmentCreate, request: Request,
         result = request.app.state.assessment_service.create(body, session)
     except (AssessmentConflict, AssessmentMissing) as exc:
         raise _errors(exc) from exc
-    append_event(request, "ASSESSMENT_CREATED", "assessment", result.assessment_id,
-                 {"assessment_id": result.assessment_id, "name": result.name})
+    try: request.app.state.audit_outbox_service.drain_pending()
+    except Exception: pass
     return result
 
 
@@ -72,8 +71,8 @@ async def activate_assessment(assessment_id: str, request: Request,
     except (AssessmentConflict, AssessmentMissing) as exc:
         raise _errors(exc) from exc
     if changed:
-        append_event(request, "ASSESSMENT_ACTIVATED", "assessment", assessment_id,
-                     {"assessment_id": assessment_id})
+        try: request.app.state.audit_outbox_service.drain_pending()
+        except Exception: pass
     return result
 
 
@@ -90,15 +89,8 @@ async def seal_assessment(assessment_id: str, request: Request,
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     if result.created:
-        overall = result.snapshot.payload["summary"]["overall"]
-        append_event(request, "ASSESSMENT_SEALED", "assessment", assessment_id, {
-            "assessment_id": assessment_id,
-            "snapshot_hash": result.snapshot.summary_hash,
-            "run_set_hash": result.snapshot.run_set_hash,
-            "run_count": result.snapshot.run_count,
-            "trusted_finding_count": result.snapshot.trusted_finding_count,
-            "overall_disposition": overall["disposition"],
-        })
+        try: request.app.state.audit_outbox_service.drain_pending()
+        except Exception: pass
     return result.snapshot
 
 

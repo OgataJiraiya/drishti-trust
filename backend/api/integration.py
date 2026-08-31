@@ -4,7 +4,6 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
-from backend.api.audit import append_event
 from backend.api.dependencies import get_session
 from backend.api.auth import require_trusted_internal_ingest
 from backend.database.repository import ModuleRunRepository
@@ -15,7 +14,6 @@ from backend.schemas.integration import (
     ModuleRunListResponse,
     ModuleRunSubmission,
 )
-from backend.schemas.evidence import Finding
 from backend.services.integration_service import (
     AssessmentNotActive,
     AssessmentNotFound,
@@ -33,60 +31,20 @@ async def get_integration_service(request: Request) -> IntegrationService:
     return request.app.state.integration_service
 
 
-def _audit_evidence_created(request: Request, finding: Finding) -> None:
-    append_event(request, "EVIDENCE_CREATED", "finding", finding.finding_id, {
-        "finding_id": finding.finding_id,
-        "module": finding.module,
-        "asset_type": finding.asset_type,
-        "asset_id": finding.asset_id,
-        "category": finding.category,
-        "severity": finding.severity,
-        "recommendation": finding.recommendation,
-    })
-
-
 def audit_ingestion_result(
     request: Request,
     body: ModuleRunSubmission,
     result: IntegrationIngestResult,
     authentication: AuthenticatedModule | None = None,
 ) -> None:
-    """Append bounded post-commit audit evidence for one newly created run."""
+    """Best-effort post-commit delivery; durable intents were staged by the service."""
     if result.response.result != "CREATED":
         return
-    for finding in result.created_findings:
-        _audit_evidence_created(request, finding)
-    authentication_payload: dict[str, object] = {}
-    if authentication is not None:
-        authentication_payload = {
-            "authenticated": True,
-            "key_id": authentication.key_id,
-            "key_fingerprint": authentication.key_fingerprint,
-        }
-        authenticated_event = {
-            "run_id": body.run_id,
-            "request_hash": result.request_hash,
-            "module": body.module,
-            "producer": body.producer,
-            **authentication_payload,
-        }
-        if body.assessment_id is not None:
-            authenticated_event["assessment_id"] = body.assessment_id
-        append_event(request, "MODULE_RUN_AUTHENTICATED", "module_run", body.run_id, authenticated_event)
-    ingested_event = {
-        "run_id": body.run_id,
-        "request_hash": result.request_hash,
-        "module": body.module,
-        "producer": body.producer,
-        "producer_version": body.producer_version,
-        "total_findings": result.response.total_findings,
-        "created_findings": result.response.created_findings,
-        "existing_findings": result.response.existing_findings,
-        **authentication_payload,
-    }
-    if body.assessment_id is not None:
-        ingested_event["assessment_id"] = body.assessment_id
-    append_event(request, "MODULE_RUN_INGESTED", "module_run", body.run_id, ingested_event)
+    try:
+        request.app.state.audit_outbox_service.drain_pending()
+    except Exception:
+        # State and durable intent are already committed; recovery/status exposes failure.
+        pass
 
 
 @router.post(

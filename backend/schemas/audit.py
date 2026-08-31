@@ -35,3 +35,36 @@ class AuditChainVerification(StrictSchema):
     first_broken_audit_id: str | None
     checks: dict[str, Literal["VALID", "INVALID", "UNAVAILABLE"]]
     findings: list[VerificationFinding]
+
+
+class AuditCheckpointPayload(StrictSchema):
+    schema_version: Literal["1"]
+    checkpoint_id: str
+    audit_sequence: int = Field(ge=1)
+    audit_record_id: str
+    audit_record_hash: str = Field(pattern=HEX_64)
+    previous_checkpoint_hash: str | None = Field(default=None, pattern=HEX_64)
+    created_at: datetime
+    signing_key_fingerprint: str
+
+
+class AuditCheckpointBundle(StrictSchema):
+    checkpoint: AuditCheckpointPayload
+    checkpoint_hash: str = Field(pattern=HEX_64)
+    signature: str
+
+
+class CheckpointCreationResponse(StrictSchema):
+    result: Literal["CREATED", "EXISTS"]
+    bundle: AuditCheckpointBundle
+
+
+class CheckpointVerification(StrictSchema):
+    valid: bool
+    status: str
+    audit_sequence: int | None = None
+    current_audit_sequence: int
+
+
+class CheckpointListResponse(StrictSchema):
+    items: list[AuditCheckpointBundle]

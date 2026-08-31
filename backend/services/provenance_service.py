@@ -21,6 +21,7 @@ from backend.schemas.inference import (
     ModelEvidence, ProcessingEvidence, SecurityEvidence, SignerEvidence,
     VerificationArtifacts, VerificationFinding, VerificationResponse,
 )
+from backend.services.audit_outbox_service import AuditOutboxService
 
 
 class InvalidInputEncoding(ValueError):
@@ -45,12 +46,14 @@ class ProvenanceService:
         max_input_bytes: int,
         max_receipt_age_seconds: int = 300,
         max_future_skew_seconds: int = 30,
+        outbox: AuditOutboxService | None = None,
     ) -> None:
         self.private_key = private_key
         self.public_key = public_key
         self.max_input_bytes = max_input_bytes
         self.max_receipt_age_seconds = max_receipt_age_seconds
         self.max_future_skew_seconds = max_future_skew_seconds
+        self.outbox = outbox
 
     def create_receipt(self, request: CreateReceiptRequest, session: Session) -> InferenceReceipt:
         image_bytes = decode_input(request.input_base64, self.max_input_bytes)
@@ -77,7 +80,7 @@ class ProvenanceService:
         payload = {key: value.model_dump(mode="json") if hasattr(value, "model_dump") else value for key, value in unsigned.items()}
         receipt = InferenceReceipt(**unsigned, signature=sign_bytes(self.private_key, canonical_json_bytes(payload)))
         receipt_json = canonical_json_text(receipt.model_dump(mode="json"))
-        repository.add(InferenceReceiptRecord(
+        session.add(InferenceReceiptRecord(
             receipt_id=receipt.receipt_id,
             receipt_json=receipt_json,
             receipt_hash=sha256_bytes(receipt_json.encode("utf-8")),
@@ -86,6 +89,13 @@ class ProvenanceService:
             timestamp=receipt.security.timestamp,
             signature=receipt.signature,
         ))
+        if self.outbox:
+            self.outbox.stage(session, f"INFERENCE_RECEIPT_CREATED:{receipt.receipt_id}",
+                "INFERENCE_RECEIPT_CREATED", "inference", receipt.receipt_id,
+                {"receipt_id": receipt.receipt_id, "input_sha256": receipt.input.sha256,
+                 "model_id": receipt.model.model_id, "model_sha256": receipt.model.sha256,
+                 "output_sha256": receipt.inference.output_sha256})
+        session.commit()
         return receipt
 
     def verify(self, receipt: InferenceReceipt, artifacts: VerificationArtifacts) -> VerificationResponse:
@@ -208,6 +218,10 @@ class ProvenanceService:
             sequence=receipt.security.sequence,
             receipt_timestamp=timestamp,
         ))
+        if self.outbox:
+            self.outbox.stage(session, f"INFERENCE_ACCEPTED:{receipt_hash}",
+                "INFERENCE_ACCEPTED", "inference", receipt.receipt_id,
+                {"receipt_id": receipt.receipt_id, "sequence": receipt.security.sequence})
         try:
             session.commit()
         except IntegrityError:

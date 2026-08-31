@@ -10,6 +10,7 @@ from backend.core.canonical import canonical_json_text
 from backend.database.models import FindingRecord
 from backend.database.repository import EvidenceRepository
 from backend.schemas.evidence import EvidenceIngestionResponse, Finding
+from backend.services.audit_outbox_service import AuditOutboxService
 
 
 class EvidenceConflict(ValueError):
@@ -17,6 +18,9 @@ class EvidenceConflict(ValueError):
 
 
 class EvidenceService:
+    def __init__(self, outbox: AuditOutboxService | None = None) -> None:
+        self.outbox = outbox
+
     def ingest(self, finding: Finding, session: Session) -> EvidenceIngestionResponse:
         canonical = canonical_json_text(finding.model_dump(mode="json"))
         session.execute(text("BEGIN IMMEDIATE"))
@@ -30,7 +34,16 @@ class EvidenceService:
             session.rollback()
             return response
         record = self.record_from_finding(finding, canonical)
-        repository.add(record)
+        repository.add_pending(record)
+        if self.outbox:
+            self.outbox.stage(session, f"EVIDENCE_CREATED:{finding.finding_id}",
+                "EVIDENCE_CREATED", "finding", finding.finding_id, {
+                    "finding_id": finding.finding_id, "module": finding.module,
+                    "asset_type": finding.asset_type, "asset_id": finding.asset_id,
+                    "category": finding.category, "severity": finding.severity,
+                    "recommendation": finding.recommendation,
+                })
+        session.commit()
         return EvidenceIngestionResponse(finding=self.to_schema(record), result="CREATED")
 
     @staticmethod

@@ -148,8 +148,9 @@ assessment; direct and unscoped evidence never enters an assessment summary.
 This bearer control is MVP access control, not multi-user RBAC. Runtime bearer
 provisioning remains an operational trust ceremony. Possession of an approved producer
 private key authenticates producer identity and exact bytes, not detector correctness.
-Audit appends remain post-state transactions, and clean audit-tail truncation needs a
-future external/signed checkpoint. SQLAlchemy `create_all` is not a migration system.
+Security-state audit intents now commit transactionally through the audit outbox, and
+signed audit checkpoints cover clean-tail truncation through a retained checkpoint.
+SQLAlchemy `create_all` is not a migration system.
 Assurance scoring remains heuristic. Snapshots are locally hashed but are not externally
 timestamped or notarized.
 
@@ -188,6 +189,53 @@ changed evidence still requires a new finding ID.
 
 M14 uses additive tables and SQLAlchemy `create_all`, not migrations. A clean/new MVP
 database is recommended; dangerous automatic schema rewriting is intentionally absent.
+
+## Audit durability
+
+M15 closes the former `state commit -> possible crash -> audit append` window for durable
+state events. The security state and an immutable `PENDING` outbox intent now commit in
+one SQLite transaction. A synchronous ordered drain normally appends the hash-chain row
+and marks the intent `DELIVERED` in one second transaction. If that drain fails, the API
+state operation remains successful: its durable intent is recovered at startup or by
+the admin-protected `POST /api/audit/outbox/drain`. `GET /api/audit/outbox/status` and
+`/health` expose bounded pending/healthy state without payloads or secrets.
+
+Outbox event keys are deterministic per logical event. Reuse with identical canonical
+content is a no-op; reuse with changed content fails closed. A SHA-256 commitment covers
+the complete canonical event body, and delivery refuses altered JSON, hashes, or column
+bindings. Delivery is oldest-first by outbox ID and exactly once because audit append,
+delivery linkage, and `DELIVERED` status share one `BEGIN IMMEDIATE` transaction.
+
+## Signed audit checkpoints
+
+The audit hash chain detects internal edits but can accept a cleanly shortened suffix.
+An administrator can create a domain-separated Ed25519 checkpoint of the current
+materialized head with `POST /api/audit/checkpoints`; known pending intents must drain
+first. The signed payload commits to schema version, deterministic checkpoint ID, audit
+sequence/ID/hash, previous checkpoint hash, creation time, and a dedicated signing-key
+fingerprint. The signature is outside that payload. Checkpoint keys are separate from
+producer and receipt keys and are never stored in SQLite.
+
+For example, retain a checkpoint for audit sequence 100 and hash `abc...`. If an attacker
+truncates SQLite to sequence 90, the remaining plain chain may be structurally valid,
+while external checkpoint verification returns
+`AUDIT_HISTORY_SHORTER_THAN_CHECKPOINT`. A checkpoint at 100 does **not** prove records
+101–110 still exist. The newest externally retained checkpoint defines the protected
+horizon.
+
+A checkpoint kept only in the same database is insufficient against deletion of both
+the audit tail and checkpoint rows. Export the checkpoint bundle plus the public key or
+fingerprint from `/api/audit/checkpoints/public-key` to offline media, a separate
+read-only host, a signed deployment archive, or another administrative machine. Trust
+requires externally pinning that key/fingerprint; a public key read only from a
+potentially compromised database is not a trust root. There is no trusted timestamp,
+HSM, TPM, blockchain, cloud notarization, or claim that compromise of the checkpoint
+private key cannot enable future forgery.
+
+Assessment snapshots and checkpoints are complementary. A snapshot commits to the
+assessment result and exact run set; `ASSESSMENT_SEALED` carries its snapshot hash. A
+checkpoint created after sealing therefore commits through the audit chain to that seal
+event and snapshot hash, without constituting external notarization.
 
 ## Deadline
 

@@ -20,6 +20,7 @@ from backend.schemas.producers import (
     ProducerKeyRegistration,
     ProducerRegistration,
 )
+from backend.services.audit_outbox_service import AuditOutboxService
 
 
 class ProducerConflict(ValueError):
@@ -35,6 +36,9 @@ class InvalidProducerKey(ValueError):
 
 
 class ProducerService:
+    def __init__(self, outbox: AuditOutboxService | None = None) -> None:
+        self.outbox = outbox
+
     @staticmethod
     def _utc(value: datetime) -> datetime:
         return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
@@ -66,6 +70,11 @@ class ProducerService:
             metadata_json=metadata_json,
         )
         repository.add_pending(record)
+        if self.outbox:
+            self.outbox.stage(session, f"PRODUCER_REGISTERED:{body.producer_id}",
+                "PRODUCER_REGISTERED", "module_producer", body.producer_id,
+                {"producer_id": body.producer_id, "module": body.module,
+                 "status": "APPROVED"})
         try:
             session.commit()
         except IntegrityError as exc:
@@ -108,6 +117,11 @@ class ProducerService:
             status="ACTIVE",
         )
         repository.add_pending(record)
+        if self.outbox:
+            self.outbox.stage(session, f"PRODUCER_KEY_REGISTERED:{body.key_id}",
+                "PRODUCER_KEY_REGISTERED", "producer_key", body.key_id,
+                {"key_id": body.key_id, "producer_id": producer_id,
+                 "key_fingerprint": fingerprint, "status": "ACTIVE"})
         try:
             session.commit()
         except IntegrityError as exc:
@@ -127,6 +141,10 @@ class ProducerService:
         if changed:
             record.status = "REVOKED"
             record.updated_at = utc_now()
+            if self.outbox:
+                self.outbox.stage(session, f"PRODUCER_REVOKED:{producer_id}",
+                    "PRODUCER_REVOKED", "module_producer", producer_id,
+                    {"producer_id": producer_id, "module": record.module, "status": "REVOKED"})
             session.commit()
         else:
             session.rollback()
@@ -144,6 +162,11 @@ class ProducerService:
         if changed:
             record.status = "REVOKED"
             record.revoked_at = utc_now()
+            if self.outbox:
+                self.outbox.stage(session, f"PRODUCER_KEY_REVOKED:{key_id}",
+                    "PRODUCER_KEY_REVOKED", "producer_key", key_id,
+                    {"key_id": key_id, "producer_id": producer_id,
+                     "key_fingerprint": record.public_key_fingerprint, "status": "REVOKED"})
             session.commit()
         else:
             session.rollback()

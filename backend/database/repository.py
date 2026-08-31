@@ -12,6 +12,7 @@ from backend.database.models import (
     AssessmentRunMembershipRecord,
     AssessmentSnapshotRecord,
     AuditLogRecord,
+    AuditOutboxRecord,
     FindingRecord,
     InferenceReceiptRecord,
     ModuleProducerRecord,
@@ -186,6 +187,9 @@ class AuditRepository:
     def add(self, record: AuditLogRecord) -> None:
         self.session.add(record)
         self.session.commit()
+
+    def add_pending(self, record: AuditLogRecord) -> None:
+        self.session.add(record)
 
     def get(self, audit_id: str) -> AuditLogRecord | None:
         return self.session.get(AuditLogRecord, audit_id)
