@@ -13,6 +13,7 @@ from backend.schemas.inference import HEX_64, StrictSchema
 
 class ModuleRunSubmission(StrictSchema):
     run_id: str = Field(min_length=1, max_length=128)
+    assessment_id: str | None = Field(default=None, min_length=1, max_length=128)
     module: FindingModule
     producer: str = Field(min_length=1, max_length=128)
     producer_version: str | None = Field(default=None, min_length=1, max_length=64)
@@ -23,6 +24,13 @@ class ModuleRunSubmission(StrictSchema):
     def reject_blank_required_text(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("value must contain non-whitespace text")
+        return value
+
+    @field_validator("assessment_id")
+    @classmethod
+    def reject_blank_assessment_id(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("assessment_id must contain non-whitespace text when supplied")
         return value
 
     @field_validator("producer_version")
@@ -45,6 +53,7 @@ class ModuleRunSubmission(StrictSchema):
 
 class ModuleRunDetails(StrictSchema):
     run_id: str
+    assessment_id: str | None
     module: FindingModule
     producer: str
     producer_version: str | None

@@ -17,6 +17,8 @@ from backend.schemas.integration import (
 )
 from backend.schemas.evidence import Finding
 from backend.services.integration_service import (
+    AssessmentNotActive,
+    AssessmentNotFound,
     IntegrationConflict,
     IntegrationIngestResult,
     IntegrationService,
@@ -61,14 +63,17 @@ def audit_ingestion_result(
             "key_id": authentication.key_id,
             "key_fingerprint": authentication.key_fingerprint,
         }
-        append_event(request, "MODULE_RUN_AUTHENTICATED", "module_run", body.run_id, {
+        authenticated_event = {
             "run_id": body.run_id,
             "request_hash": result.request_hash,
             "module": body.module,
             "producer": body.producer,
             **authentication_payload,
-        })
-    append_event(request, "MODULE_RUN_INGESTED", "module_run", body.run_id, {
+        }
+        if body.assessment_id is not None:
+            authenticated_event["assessment_id"] = body.assessment_id
+        append_event(request, "MODULE_RUN_AUTHENTICATED", "module_run", body.run_id, authenticated_event)
+    ingested_event = {
         "run_id": body.run_id,
         "request_hash": result.request_hash,
         "module": body.module,
@@ -78,7 +83,10 @@ def audit_ingestion_result(
         "created_findings": result.response.created_findings,
         "existing_findings": result.response.existing_findings,
         **authentication_payload,
-    })
+    }
+    if body.assessment_id is not None:
+        ingested_event["assessment_id"] = body.assessment_id
+    append_event(request, "MODULE_RUN_INGESTED", "module_run", body.run_id, ingested_event)
 
 
 @router.post(
@@ -109,6 +117,10 @@ async def ingest_module_run(
             RunAuthentication(mode="TRUSTED_INTERNAL", producer_id=body.producer),
         )
     except IntegrationConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except AssessmentNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AssessmentNotActive as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     audit_ingestion_result(request, body, result)
     return result.response

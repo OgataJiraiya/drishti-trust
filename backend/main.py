@@ -8,6 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from backend.api import (
+    assessments,
     audit,
     evidence,
     health,
@@ -29,6 +30,7 @@ from backend.services.summary_service import SummaryService
 from backend.services.integration_service import IntegrationService
 from backend.services.module_auth_service import ModuleAuthService
 from backend.services.producer_service import ProducerService
+from backend.services.assessment_service import AssessmentService
 
 
 def create_app(settings: Settings = default_settings) -> FastAPI:
@@ -65,6 +67,7 @@ def create_app(settings: Settings = default_settings) -> FastAPI:
     app.state.evidence_service = EvidenceService()
     app.state.summary_service = SummaryService()
     app.state.integration_service = IntegrationService()
+    app.state.assessment_service = AssessmentService(app.state.summary_service)
     app.state.producer_service = ProducerService()
     app.state.module_auth_service = ModuleAuthService()
 
@@ -98,6 +101,7 @@ def create_app(settings: Settings = default_settings) -> FastAPI:
     app.include_router(integration.router)
     app.include_router(module_auth.router)
     app.include_router(producers.router)
+    app.include_router(assessments.router)
     return app
 
 

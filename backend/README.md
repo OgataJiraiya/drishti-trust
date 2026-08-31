@@ -379,7 +379,7 @@ Modules submit the strict wrapper `{run, key_id, signature}` to
 `POST /api/integration/signed-runs`. Signing bytes are exactly:
 
 ```text
-canonical_json_bytes(run.model_dump(mode="json"))
+canonical_json_bytes(run payload, omitting assessment_id only when it is absent)
 ```
 
 The existing request hash is SHA-256 over those same bytes. Finding order therefore
@@ -417,6 +417,35 @@ RBAC; offline key provisioning is a trust ceremony; possession of an approved pr
 key authenticates producer identity but not detector correctness; and key compromise
 requires explicit durable revocation. Registry/integration state and audit append remain
 consecutive transactions with the previously documented small crash window.
+
+## Assessment Lifecycle
+
+Administrative assessment create, activate, and seal mutations reuse the existing
+fail-closed administrator bearer. Read routes provide filtering and pagination, current
+assessment discovery, scoped runs, immutable snapshots, and snapshot verification.
+
+The lifecycle is `DRAFT -> ACTIVE -> SEALED`; sealed is terminal. SQLite write
+reservations and a partial unique index enforce at most one active assessment. A scoped
+run may join only an active assessment, and membership commits atomically with findings,
+run identity, and authentication provenance. Legacy runs without `assessment_id` remain
+valid and visibly return `null` membership.
+
+Summary responses identify `EXPLICIT_ASSESSMENT`, `ACTIVE_ASSESSMENT`, or
+`GLOBAL_LEGACY` scope. Within an assessment, `authenticated` selects only Ed25519 runs;
+`all` also selects trusted-internal runs. Direct evidence, unscoped runs, and other
+assessments are excluded. Scoring and disposition policy are unchanged.
+
+Seal persists canonical summary JSON and SHA-256 plus a deterministic run-set commitment
+over sorted run ID, request hash, and authentication mode entries. Snapshot GET never
+recomputes it; snapshot verification checks payload and current membership integrity.
+Create, activate, and seal add bounded audit events, and scoped run events carry the
+assessment ID.
+
+`create_all` is not a migration framework, so M14 adds tables without automatic schema
+migration; use a clean/new MVP database. Admin bearer auth is not RBAC, key provisioning
+is an operational ceremony, identity does not prove detector correctness, scoring is
+heuristic, state/audit commits retain their crash window, clean audit-tail truncation
+needs a future checkpoint, and snapshots lack external timestamping/notarization.
 
 ## Security Principles and Limitations
 

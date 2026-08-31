@@ -139,19 +139,55 @@ export DRISHTI_ALLOW_UNSIGNED_INGESTION="true"
 export DRISHTI_INTERNAL_INGEST_BEARER_TOKEN="replace-with-separate-runtime-secret"
 ```
 
-`GET /api/summary` defaults to the trusted assurance view: only exact findings attested
-by successful Ed25519 module runs contribute. It reports trusted and excluded-untrusted
-counts. `GET /api/summary?trust_scope=all` is an explicit diagnostic view that includes
-trusted-internal/direct evidence and must not be interpreted as an authenticated
-assurance boundary.
+`GET /api/summary` defaults to the active assessment and trusted view: only its
+Ed25519-attested findings contribute. An explicit `assessment_id` retrieves historical
+scope. With no active assessment, compatibility is preserved and clearly labelled
+`GLOBAL_LEGACY`. `trust_scope=all` includes trusted-internal runs within the selected
+assessment; direct and unscoped evidence never enters an assessment summary.
 
 This bearer control is MVP access control, not multi-user RBAC. Runtime bearer
 provisioning remains an operational trust ceremony. Possession of an approved producer
 private key authenticates producer identity and exact bytes, not detector correctness.
 Audit appends remain post-state transactions, and clean audit-tail truncation needs a
 future external/signed checkpoint. SQLAlchemy `create_all` is not a migration system.
-Assurance scoring remains heuristic; there is no assessment/snapshot lifecycle, so
-historical authenticated findings accumulate until Milestone 14 adds assessment scope.
+Assurance scoring remains heuristic. Snapshots are locally hashed but are not externally
+timestamped or notarized.
+
+## Assessment lifecycle
+
+An administrator creates a `DRAFT` assessment and explicitly activates it. At most one
+is `ACTIVE`; activation never silently replaces another. Modules put the optional
+`assessment_id` inside `ModuleRunSubmission`, so canonical Ed25519 signing binds the
+assessment, run identity, producer, findings, and finding order. Active-state validation,
+immutable findings, run provenance, and membership commit in one SQLite transaction.
+
+```bash
+curl -H "Authorization: Bearer $DRISHTI_ADMIN_BEARER_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"assessment_id":"ASSESS-2026-001","name":"Friday remediation check","metadata":{}}' \
+  http://127.0.0.1:8000/api/assessments
+curl -X POST -H "Authorization: Bearer $DRISHTI_ADMIN_BEARER_TOKEN" \
+  http://127.0.0.1:8000/api/assessments/ASSESS-2026-001/activate
+```
+
+Modules sign a run containing `"assessment_id":"ASSESS-2026-001"` and submit it to
+`/api/integration/signed-runs`. `/api/summary` then describes that active assessment.
+Sealing is terminal and idempotent:
+
+```bash
+curl -X POST -H "Authorization: Bearer $DRISHTI_ADMIN_BEARER_TOKEN" \
+  http://127.0.0.1:8000/api/assessments/ASSESS-2026-001/seal
+curl http://127.0.0.1:8000/api/assessments/ASSESS-2026-001/snapshot/verify
+```
+
+Seal writes one canonical authenticated summary, its SHA-256 hash, and a deterministic
+commitment to sorted `{run_id, request_hash, authentication_mode}` entries before making
+the assessment `SEALED`. No later run can attach and there is no reopen/delete API.
+Exact immutable findings may be reused in different assessments through distinct runs;
+changed evidence still requires a new finding ID.
+
+M14 uses additive tables and SQLAlchemy `create_all`, not migrations. A clean/new MVP
+database is recommended; dangerous automatic schema rewriting is intentionally absent.
 
 ## Deadline
 

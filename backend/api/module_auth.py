@@ -6,7 +6,9 @@ from backend.api.dependencies import get_session
 from backend.api.integration import audit_ingestion_result
 from backend.schemas.integration import ModuleRunIngestionResponse
 from backend.schemas.module_auth import SignedModuleRunSubmission
-from backend.services.integration_service import IntegrationConflict, RunAuthentication
+from backend.services.integration_service import (
+    AssessmentNotActive, AssessmentNotFound, IntegrationConflict, RunAuthentication,
+)
 from backend.services.module_auth_service import (
     InvalidModuleSignature,
     ModuleAuthorizationDenied,
@@ -52,6 +54,10 @@ async def ingest_signed_module_run(
             ),
         )
     except IntegrationConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except AssessmentNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AssessmentNotActive as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     audit_ingestion_result(request, body.run, result, authentication)
     return result.response

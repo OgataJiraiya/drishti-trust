@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -131,6 +131,57 @@ class ModuleRunAuthenticationRecord(Base):
     authenticated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
+
+
+class AssessmentRecord(Base):
+    """Lifecycle container for immutable sets of module runs."""
+
+    __tablename__ = "assessments"
+    __table_args__ = (
+        Index("uq_assessments_one_active", "status", unique=True,
+              sqlite_where=text("status = 'ACTIVE'")),
+    )
+
+    assessment_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), index=True, nullable=False, default="DRAFT")
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sealed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AssessmentRunMembershipRecord(Base):
+    """Immutable one-assessment ownership of a module run."""
+
+    __tablename__ = "assessment_run_memberships"
+
+    run_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("module_runs.run_id"), primary_key=True
+    )
+    assessment_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("assessments.assessment_id"), index=True, nullable=False
+    )
+    attached_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class AssessmentSnapshotRecord(Base):
+    """Canonical immutable authenticated summary produced exactly once at seal."""
+
+    __tablename__ = "assessment_snapshots"
+
+    assessment_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("assessments.assessment_id"), primary_key=True
+    )
+    schema_version: Mapped[str] = mapped_column(String(16), nullable=False, default="1")
+    summary_json: Mapped[str] = mapped_column(Text, nullable=False)
+    summary_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    run_set_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    run_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    trusted_finding_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    excluded_untrusted_finding_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class ModuleProducerRecord(Base):
