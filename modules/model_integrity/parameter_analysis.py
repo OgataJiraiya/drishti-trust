@@ -346,6 +346,22 @@ def analyze_parameters(model: Any, limits: ParameterAnalysisLimits | None = None
     return report, fingerprint(commitments) if commitments else None, fp_status
 
 
+def tensor_value_commitments(model: Any, limits: ParameterAnalysisLimits | None = None
+                             ) -> list[dict[str, Any]]:
+    """Return bounded per-tensor identities using the exact frozen M2 canonical bytes."""
+    limits = limits or ParameterAnalysisLimits()
+    result: list[dict[str, Any]] = []; used = 0
+    for tensor in sorted(model.graph.initializer, key=lambda item: item.name):
+        _values, _count, byte_count, mode, _limitation, canonical = _decode(
+            tensor, limits, limits.max_total_parameter_bytes - used)
+        if mode == AnalysisMode.FULL: used += byte_count
+        if canonical is not None:
+            result.append({"name": tensor.name, "dtype": int(tensor.data_type),
+                "shape": [int(item) for item in tensor.dims],
+                "value_sha256": sha256(canonical).hexdigest()})
+    return result
+
+
 def unavailable_parameter_report(limitation: str) -> ParameterAnalysisReport:
     """Represent absent parameter evidence explicitly instead of as an empty success."""
     coverage = ParameterCoverage(0, 0, 0, 0, 0, 0, 0, 0.0, 0.0)
