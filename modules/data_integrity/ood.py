@@ -196,20 +196,18 @@ def calculate_ood_scores(
     return scores
 
 
-def find_ood_outliers(
+def analyze_ood(
     images_dir: str,
     threshold: float | None = None,
     calibration: str = "auto",
     processor=None,
     model=None,
-) -> list[dict[str, Any]]:
-    """
-    Find images whose CLIP embeddings are far from the
-    dataset centroid.
+) -> dict[str, Any]:
+    """Analyze image embeddings and return OOD outliers with calibration.
 
-    Higher distance means more visually unusual. Automatic calibration is
-    dataset-relative. To use a controlled fixed threshold, pass
-    ``calibration="fixed"`` and a numeric ``threshold``.
+    Higher distance means more visually unusual. The returned calibration is
+    dataset-relative in automatic mode. This result is a review signal, not a
+    claim that any image is poisoned or invalid.
     """
 
     images_path = Path(images_dir)
@@ -255,11 +253,22 @@ def find_ood_outliers(
                 "A threshold is required when calibration='fixed'."
             )
         active_threshold = threshold
+        calibration_metadata = {
+            "method": "fixed",
+            "threshold": threshold,
+            "sample_count": len(scores),
+        }
     else:
-        active_threshold, _ = calibrate_ood_threshold(scores)
+        active_threshold, calibration_metadata = calibrate_ood_threshold(
+            scores
+        )
 
     if active_threshold is None:
-        return []
+        return {
+            "outliers": [],
+            "scores": scores,
+            "calibration": calibration_metadata,
+        }
 
     outliers = []
 
@@ -272,11 +281,35 @@ def find_ood_outliers(
                 }
             )
 
-    return sorted(
-        outliers,
-        key=lambda item: item["ood_score"],
-        reverse=True,
+    return {
+        "outliers": sorted(
+            outliers,
+            key=lambda item: item["ood_score"],
+            reverse=True,
+        ),
+        "scores": scores,
+        "calibration": calibration_metadata,
+    }
+
+
+def find_ood_outliers(
+    images_dir: str,
+    threshold: float | None = None,
+    calibration: str = "auto",
+    processor=None,
+    model=None,
+) -> list[dict[str, Any]]:
+    """Return OOD outliers while preserving the original public API."""
+
+    result = analyze_ood(
+        images_dir,
+        threshold=threshold,
+        calibration=calibration,
+        processor=processor,
+        model=model,
     )
+
+    return result["outliers"]
 
 
 def create_ood_findings(
