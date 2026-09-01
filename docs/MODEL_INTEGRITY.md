@@ -1,4 +1,68 @@
-# Model Integrity — M1–M3 integrity analysis
+# Model Integrity — M1–M4 integrity analysis
+
+## M4 designated-reference baseline comparison
+
+M4 answers what changed between a caller-designated reference and a candidate. **A
+reference baseline is not trusted merely because it is called a baseline.** Filenames are
+never identity, SHA-256 identity is not model safety, and equal structure or parameters do
+not establish behavioral safety. Without separately verified caller evidence the reference
+status is `DESIGNATED_ONLY`; M4 does not query, replace, or extend the Person-3 registry.
+When a caller supplies `expected_reference_sha256`, M4 verifies only that the lowercase
+digest matches the bytes it inspected. A supplied registry-state string is retained as
+caller metadata; M4 core does not authenticate that claim or turn `APPROVED` into proof.
+
+`BaselineComparisonService.compare(reference, candidate)` is strictly non-executing. It
+combines frozen M1/M2 manifests to distinguish exact artifact bytes, observed graph
+structure, parameter metadata, complete parameter values, and parameter anomaly changes.
+Artifact changes can coexist with equal structural and parameter identities when only
+serialization or excluded documentation changes. Partial or unavailable fingerprints are
+never compared as equality, including `None == None`.
+
+Structural comparison includes bounded, name-sorted input/output signatures, opsets,
+operator counts, and initializer metadata. Parameter comparison reuses M2's exact canonical
+little-endian tensor bytes to expose only tensor name, dtype, shape, and value SHA-256; it
+never reports values. Parameter indicators use deterministic `(code, tensor, channel)`
+identity and are classified `NEW`, `PERSISTING`, or `RESOLVED`. These describe evidence
+changes, not intent, global severity, or an assurance score.
+
+A baseline record contains frozen static fingerprints and no timestamp, UUID, filename,
+secret, or signature. `baseline_payload_sha256` commits to canonical baseline payload bytes,
+and `baseline:sha256:<digest>` is its deterministic identifier. **Baseline self-hashing
+detects inconsistent modification but does not establish authenticity.** A party able to
+modify the record may recompute an unsigned digest. M5/Person-3 signed provenance owns
+authenticity and approval evidence.
+
+Baseline JSON verification is strict and bounded: exact schema fields, SHA-256 formatting,
+parameter completeness, canonical digest, deterministic ID, duplicate keys, non-finite
+constants, malformed JSON, symlinks, oversized files, and unsupported schema versions are
+rejected. Baselines contain JSON data only—never executable configuration or serialized
+objects.
+Schema version is the JSON integer `1` (strings and booleans are rejected). SHA-256 values
+must be exactly 64 lowercase hexadecimal characters; uppercase values are rejected rather
+than normalized. The payload digest excludes its derived digest and baseline ID, avoiding
+circular hashing.
+
+Behavior is `NOT_ASSESSED` in static comparison. The separate `compare_behavior(...)` API
+and `compare-behavioral` CLI explicitly execute both eligible models through the existing
+M3 service; no second runtime or eligibility path exists. **Behavioral regressions are
+comparable only under matched test protocols.** The protocol commits to ordered clean
+sample fingerprints, exact input/output contracts, ordered triggers, relevant M3 limits,
+and runtime implementation/version. Each sample commitment includes its index, dtype,
+shape, and canonical-value digest, but no sample values. Corpus order is therefore
+semantically significant and changes the protocol ID.
+
+Protocol differences in corpus, contract, triggers, limits, or runtime produce
+`INCOMPARABLE`, never a numeric comparison. Under a matched protocol M4 reports bounded
+flip-rate, concentration-lift, and control-relative deltas plus behavioral issue
+`NEW`/`PERSISTING`/`RESOLVED` states. `NEW_TRIGGER_SENSITIVITY` means candidate sensitivity
+was not observed in the reference under that protocol; it is not proof of a backdoor or
+malicious intent. Partial M3 evidence stays partial, and zero clean coverage is unavailable.
+
+Default comparison ceilings are 256 changed tensors, 128 operator/opset/signature deltas,
+256 initializer deltas, 200 issue deltas, 64 behavioral trigger deltas, 100 limitations,
+512-character explanations, and 1 MiB baseline JSON. Material truncation makes the report
+`PARTIAL`. All ordering and report identities are deterministic. M4 remains offline, opens
+no external tensor data, loads no native custom operators, and adds no runtime dependency.
 
 ## M3 behavioral integrity trust boundary
 
@@ -223,14 +287,19 @@ models.
 python -m modules.model_integrity.cli inspect model.onnx
 python -m modules.model_integrity.cli inspect model.onnx --json --pretty
 python -m modules.model_integrity.cli inspect model.pt --strict
+python -m modules.model_integrity.cli baseline-create reference.onnx
+python -m modules.model_integrity.cli baseline-verify baseline.json
+python -m modules.model_integrity.cli compare reference.onnx candidate.onnx
 python -m modules.model_integrity.cli behavioral model.onnx --input-npy corpus.npy \
   --layout NCHW --value-min 0 --value-max 1 --output scores
+python -m modules.model_integrity.cli compare-behavioral reference.onnx candidate.onnx \
+  --input-npy corpus.npy --layout NCHW --value-min 0 --value-max 1 --output scores
 ```
 
 Failures are bounded and produce no stack trace by default.
 
 ## Limitations and roadmap
 
-M2/M3 do not prove presence or absence of backdoors, trojans, poisoning, adversarial behavior or
-semantic replacement. M4 will add approved-baseline comparison; M5 signed backend integration; and M6
+M2–M4 do not prove presence or absence of backdoors, trojans, poisoning, adversarial behavior or
+semantic replacement. M5 will add signed backend integration; M6
 the final Person-2 demonstration. Unknown and unavailable evidence will remain explicit.
