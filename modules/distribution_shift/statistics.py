@@ -73,4 +73,3 @@ def symmetric_median_change(reference: FeatureSummary, current: FeatureSummary,
     numerator = 2 * abs(current.median-reference.median)
     denominator = abs(current.median) + abs(reference.median) + epsilon
     return _public(min(2.0, max(0.0, numerator / denominator)))
-
