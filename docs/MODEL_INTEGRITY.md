@@ -1,4 +1,92 @@
-# Model Integrity — M2 parameter and layer anomaly forensics
+# Model Integrity — M1–M3 integrity analysis
+
+## M3 behavioral integrity trust boundary
+
+`ModelIntegrityService.inspect()` remains strictly non-executing M1/M2 inspection. Model
+execution requires the separate, explicit `BehavioralIntegrityService.analyze()` API or
+the `behavioral` CLI command. Approval/revocation state and M2 parameter indicators do not
+grant or deny behavioral eligibility; the execution gate is independent.
+
+M3 uses `onnx.reference.ReferenceEvaluator` from the pinned `onnx==1.22.0` package because
+no ONNX Runtime package is installed for the project's Python 3.14 environment. NumPy
+remains pinned at `2.4.6`; no runtime dependency was added. Each inference runs in a child
+process with a wall-clock timeout and Linux CPU limit. Outputs are bounded inside the
+worker before IPC. Bounded full outputs needed for comparison cross IPC only after tensor,
+element, and byte ceilings; reports contain summaries, not arrays, and the parent
+independently revalidates the payload. This child process is not a hardened sandbox, and
+`ReferenceEvaluator` still processes untrusted graph structures. Production use should
+add a hardened container with syscall and filesystem isolation plus independent process,
+CPU, and memory limits.
+
+Eligibility requires a bounded ONNX artifact, available structural inspection, embedded
+and safely decoded initializers, standard `""` or `ai.onnx` domains, static bounded I/O,
+supported numeric dtypes, exactly one explicit image input, and a declared output. External
+tensor data and custom domains are never executed. No custom native library is registered.
+The design is offline and makes no network calls.
+
+Eligibility recursively checks graph-valued attributes, so custom-domain operators or
+external initializers inside `If`, `Loop`, or `Scan` subgraphs cannot bypass the gate.
+Standard-domain control flow is not assumed cheap or intrinsically safe; it remains
+eligible only behind per-run wall-clock, CPU, and address-space bounds.
+
+`InputContract` explicitly declares input name, dtype, static batch-one shape, NCHW or
+NHWC layout, 1/3/4 channels, and valid value range. Layout and normalization range are
+never guessed. The Python API accepts already-constructed numeric NumPy arrays. CLI corpus
+input is a bounded regular `.npy` file loaded with `allow_pickle=False`; general image,
+video, object-array, and model-code decoding are outside M3.
+The CLI validates NPY header-declared shape, dtype, and allocation size before loading.
+Multiple required graph inputs are unavailable in this MVP; auxiliary inputs are never
+fabricated. Boolean trigger inputs are unavailable because numeric high/low trigger
+semantics would be ambiguous.
+
+Default behavioral ceilings are 256 MiB model size, 64 samples, 16 triggers, 512 total
+runs, 32 MiB per input, 256 MiB total input, 16 output tensors, 4,000,000 output elements
+and 64 MiB output per run, ten-second wall timeout, two clean repeatability runs, and 200
+issues. Linux workers also receive a 1 GiB address-space ceiling. Products are validated before execution; trigger and sample lists are truncated
+deterministically with explicit limitations.
+
+Clean inference is repeated and compared through deterministic output commitments. Output
+summaries contain only name, dtype, shape, element/non-finite counts, finite min/max/mean/
+RMS, and a fingerprint over fixed-dtype little-endian numeric bytes. Full outputs and inputs
+are never included. Non-finite values are counted and finite statistics use the finite
+subset; JSON never emits bare NaN or Infinity. Shape/dtype/name changes, non-finite clean
+outputs, runtime failures, timeouts, and nondeterministic commitments prevent an unusable
+baseline from feeding trigger analysis.
+An exact repeatability mismatch is review evidence, not a backdoor verdict: stochastic
+graphs, nondeterministic implementations, or floating-runtime differences can cause it.
+
+Generic compatible-output comparison reports maximum and mean absolute differences,
+normalized L2 delta, and cosine similarity using scaled float64 arithmetic. Empty,
+non-finite, mismatched, and all-zero outputs avoid division by zero. Optional explicit
+classification contracts declare logits or probabilities and class axis. Logits use stable
+softmax only for comparative top-1 metrics; declared probabilities receive conservative
+range tolerance of `1e-6` and sum tolerance of `1e-3`. Arbitrary output vectors are never
+assumed to be classes.
+
+Deterministic probes are solid-high, literal-zero (only when in range), and checkerboard
+patches at top-left, top-right, bottom-left, bottom-right, and center. Patch values remain
+inside the explicit input range and preserve dtype. There is no randomness, gradient
+search, or optimization. Same-kind/same-size locations form matched control families.
+Per-trigger reports include successful samples, mean/median generic divergence, flips,
+dominant class concentration, clean target rate, concentration lift, score shift, and the
+flip-rate difference from the peer-location median.
+
+Strong `TRIGGER_SENSITIVITY` requires at least eight successful samples, at least 75% flips,
+at least 75% dominant triggered-class concentration, at least 0.50 lift over the clean
+target rate, and at least 0.50 flip-rate advantage over matched locations. A single flip is
+not a strong verdict. Stable internal codes include `BEHAVIOR_ANALYSIS_UNAVAILABLE`,
+`BEHAVIOR_ANALYSIS_PARTIAL`, `RUNTIME_TIMEOUT`, `RUNTIME_FAILURE`, `OUTPUT_NONFINITE`,
+`OUTPUT_CONTRACT_CHANGED`, `NONDETERMINISTIC_OUTPUT`, `TRIGGER_OUTPUT_DIVERGENCE`,
+`TRIGGER_PREDICTION_FLIP`, `TRIGGER_TARGET_CONCENTRATION`, and `TRIGGER_SENSITIVITY`.
+
+Coverage distinguishes requested/successful clean and trigger runs, failures, timeouts,
+triggers, and output tensors as `COMPLETE`, `PARTIAL`, or `UNAVAILABLE`. Zero coverage is
+never described as clean. Natural occlusion sensitivity, task-specific preprocessing,
+stochastic graphs, and incomplete probe families can cause false positives or negatives.
+
+**Trigger sensitivity is evidence requiring review. It is not cryptographic or
+mathematical proof of a malicious backdoor.** M3 compares one model on clean versus
+controlled inputs only; approved-baseline comparison remains M4.
 
 ## Purpose and threat model
 
@@ -135,13 +223,14 @@ models.
 python -m modules.model_integrity.cli inspect model.onnx
 python -m modules.model_integrity.cli inspect model.onnx --json --pretty
 python -m modules.model_integrity.cli inspect model.pt --strict
+python -m modules.model_integrity.cli behavioral model.onnx --input-npy corpus.npy \
+  --layout NCHW --value-min 0 --value-max 1 --output scores
 ```
 
 Failures are bounded and produce no stack trace by default.
 
 ## Limitations and roadmap
 
-M2 does not prove presence or absence of backdoors, trojans, poisoning, adversarial behavior or
-semantic replacement. M3 will add behavioral and
-trigger analysis; M4 approved-baseline comparison; M5 signed backend integration; and M6
+M2/M3 do not prove presence or absence of backdoors, trojans, poisoning, adversarial behavior or
+semantic replacement. M4 will add approved-baseline comparison; M5 signed backend integration; and M6
 the final Person-2 demonstration. Unknown and unavailable evidence will remain explicit.
