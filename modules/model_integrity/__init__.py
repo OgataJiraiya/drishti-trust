@@ -4,8 +4,10 @@ from .baseline import BaselineComparisonService, compare_behavior, create_baseli
 from .behavioral import BehavioralIntegrityService
 from .findings import ModelIntegrityEvidenceBundle, ModelIntegrityFindingMapper
 from .integration import ModelIntegrityRunBuilder
+from .demo import ModelIntegrityFinalOrchestrator
 from .service import ModelIntegrityService
 
 __all__ = ["BaselineComparisonService", "BehavioralIntegrityService", "ModelIntegrityService",
            "ModelIntegrityEvidenceBundle", "ModelIntegrityFindingMapper", "ModelIntegrityRunBuilder",
-           "compare_behavior", "create_baseline", "verify_baseline", "sha256_file"]
+           "ModelIntegrityFinalOrchestrator", "compare_behavior", "create_baseline",
+           "verify_baseline", "sha256_file"]
