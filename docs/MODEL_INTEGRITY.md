@@ -1,4 +1,9 @@
-# Model Integrity — M1–M4 integrity analysis
+# Model Integrity — M1–M5 integrity analysis
+
+M5 Frozen Finding v1 mapping and signed Person-3 integration are documented in
+[`MODEL_INTEGRITY_INTEGRATION.md`](MODEL_INTEGRITY_INTEGRATION.md). Static mapping consumes
+existing reports and never executes models; explicit M3 behavioral execution remains the
+only source of behavioral reports.
 
 ## M4 designated-reference baseline comparison
 
@@ -300,6 +305,6 @@ Failures are bounded and produce no stack trace by default.
 
 ## Limitations and roadmap
 
-M2–M4 do not prove presence or absence of backdoors, trojans, poisoning, adversarial behavior or
-semantic replacement. M5 will add signed backend integration; M6
+M2–M5 do not prove presence or absence of backdoors, trojans, poisoning, adversarial behavior or
+semantic replacement. M6 will add
 the final Person-2 demonstration. Unknown and unavailable evidence will remain explicit.
