@@ -226,4 +226,3 @@ def test_public_schema_has_no_drift_or_trust_decision_fields(tmp_path):
     fields = ImageWindowProfiler().profile_directory(tmp_path).to_dict()
     prohibited = {"drift_score", "risk_score", "trust_score", "severity", "disposition", "findings"}
     assert prohibited.isdisjoint(fields)
-

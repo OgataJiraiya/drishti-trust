@@ -93,4 +93,3 @@ def extract_image_features(path: Path, limits: ProfileLimits) -> ImageFeatures:
 
 
 def pixel_count(width: int, height: int) -> int: return width * height
-

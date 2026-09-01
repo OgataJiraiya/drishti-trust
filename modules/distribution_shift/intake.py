@@ -69,4 +69,3 @@ def streaming_sha256(path: Path, chunk_bytes: int = 1024 * 1024) -> str:
     with path.open("rb") as source:
         while chunk := source.read(chunk_bytes): digest.update(chunk)
     return digest.hexdigest()
-
