@@ -80,5 +80,75 @@ download, network request, external command, or cloud operation.
 - D1 makes no drift or model-performance conclusion.
 - Profile equality does not prove deployment safety.
 
-D2 will compare compatible reference/current D1 evidence using separately specified
-statistical and image-quality drift semantics. No D2 thresholds or decisions exist here.
+## D2 statistical and image-quality comparison
+
+D2 is implemented on branch `feat/distribution-statistical-drift` above frozen D1
+base `44ae21f516bbf240ba481e68b163e8355c7cd764`. It consumes already-created D1
+profiles only. `DistributionShiftComparator.compare(reference, current)` performs no
+directory scan, file read, decoder call, network operation, or model execution. The
+API requires `REFERENCE` then `CURRENT` roles and never silently swaps them.
+
+D2 compares width, height, pixel count, aspect ratio, brightness, contrast,
+sharpness, entropy, saturation, image-mode distribution, and decoded-format
+distribution. Every feature reports support counts, typed metrics, raw aggregate
+mean/median/std evidence where applicable, direction, state, reason, and limitations.
+States are `STABLE`, `SHIFTED`, `PARTIAL`, `UNAVAILABLE`, or `INCOMPARABLE`; they are
+feature evidence, not severity or system disposition. There is deliberately no
+global score or multi-signal interpretation.
+
+The default minimum support is 20 profiled observations in each window. Below that,
+D2 emits `PARTIAL` feature evidence and makes neither a stable nor shifted conclusion.
+An unavailable D1 profile makes the comparison unavailable. A partial D1 profile may
+still yield feature metrics, but the report remains partial. Schema incompatibility
+makes the report incomparable. Histogram length, nonnegative counts, positive mass,
+and consistency with summary counts are checked. Incompatible brightness/saturation
+histograms make those features incomparable while compatible summary-only features
+can still be compared.
+
+### Metrics and decision policy
+
+Continuous summaries use absolute standardized mean difference:
+`|mean_cur-mean_ref| / sqrt((std_ref²+std_cur²)/2)`. Equal zero-scale distributions
+produce zero; different constant distributions produce `None` plus explicit constant
+shift evidence, never infinity. Robust quantile shift is the largest corresponding
+q05/q25/median/q75/q95 displacement divided by the larger q05–q95 range, with the
+same constant-distribution handling. Symmetric median change is
+`2|median_cur-median_ref|/(|median_cur|+|median_ref|+epsilon)`.
+
+Brightness and saturation additionally use fixed-support base-2 Jensen–Shannon
+divergence, total-variation distance, and approximate one-dimensional Wasserstein
+distance `sum(|CDF_ref-CDF_cur|)/bin_count`. Mode and format counts are aligned by
+sorted category name and compared with Jensen–Shannon and total variation. A format
+change is operational evidence and does not establish visual or semantic change.
+
+The default configurable thresholds are SMD 0.8, robust quantile shift 0.5,
+symmetric median change 0.25, JS 0.10, TV 0.25, and histogram Wasserstein 0.10.
+These are conservative detector heuristics, not probabilities or universal scientific
+constants. `metric >= threshold` is an exceedance. Summary features require two
+normalized exceedances, except exact constant-distribution changes. Histogram-backed
+features use the same explicit two-exceedance rule across all available metrics.
+Categorical features require both JS and TV. No hidden weighting or aggregation exists.
+
+The immutable policy has `drift-policy:sha256:...` identity. The ordered reference and
+current profile IDs, policy, final feature evidence, report status, and limitations
+produce `drift-comparison:sha256:...`. IDs contain no timestamp, UUID, process/machine
+identity, or path. Reports are deterministic and pass strict JSON with no NaN or
+infinity. D2 uses descriptive effect sizes and distances only; aggregate D1 summaries
+cannot support fabricated KS, Mann–Whitney, t-test, permutation, bootstrap, or p-value
+claims.
+
+D2 limitations include:
+
+- It operates on D1 aggregates rather than every raw feature observation.
+- Summary-only effects cannot reproduce full empirical hypothesis tests.
+- Histogram Wasserstein is an approximation over fixed bins.
+- Generic thresholds are configurable heuristics, not scientific constants.
+- Small windows cannot support strong conclusions; partial D1 coverage weakens them.
+- Statistical/image-quality shift does not prove model-performance degradation.
+- Absence of observed D2 shift does not prove deployment safety.
+- D2 neither attributes malicious behavior nor authenticates a designated reference.
+- D3 will address representation shift; D4 will address prediction/output shift.
+
+D2 emits no Finding v1, ModuleRun, recommendation, severity, disposition, or Person-3
+assurance value. D3 will add separately bounded representation evidence without
+changing these D2 semantics.
