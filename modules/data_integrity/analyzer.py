@@ -16,7 +16,7 @@ from .label_anomaly import (
 )
 from .ood import analyze_ood, create_ood_findings
 from .phash import create_near_duplicate_findings, find_near_duplicates
-from .risk import aggregate_contributor_risk
+from .risk import aggregate_contributor_risk, aggregate_dataset_risk
 
 
 def _image_count(directory: Path) -> int:
@@ -206,6 +206,7 @@ def analyze_dataset(
         skipped_detectors["ood"] = "Disabled by configuration."
 
     findings = _renumber_findings(findings)
+    dataset_risk = aggregate_dataset_risk(findings)
 
     if run_risk:
         risk_summary = aggregate_contributor_risk(findings, samples)
@@ -229,6 +230,7 @@ def analyze_dataset(
         "findings_by_severity": dict(
             sorted(Counter(finding["severity"] for finding in findings).items())
         ),
+        "dataset_risk": dataset_risk,
         "ood_calibration": ood_calibration_metadata,
         "risk_summary": risk_summary,
         "skipped_detectors": skipped_detectors,

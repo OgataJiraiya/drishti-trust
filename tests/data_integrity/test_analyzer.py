@@ -31,6 +31,8 @@ def test_unified_analysis_runs_all_detectors(monkeypatch, tmp_path):
     assert result["finding_count"] == 4
     assert result["findings_by_category"] == {"EXACT_DUPLICATE": 1, "LABEL_ANOMALY": 1, "NEAR_DUPLICATE": 1, "OOD_OUTLIER": 1}
     assert result["ood_calibration"]["threshold"] == 0.3
+    assert result["dataset_risk"]["risk_score"] == 100.0
+    assert result["dataset_risk"]["severity"] == "CRITICAL"
     assert [finding["finding_id"] for finding in result["findings"]] == ["F-DATA-001", "F-DATA-002", "F-DATA-003", "F-DATA-004"]
 
 
