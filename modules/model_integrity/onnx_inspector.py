@@ -1,7 +1,6 @@
 """ONNX protobuf metadata inspection without inference or external tensor loading."""
 from __future__ import annotations
 from collections import Counter
-from math import prod
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import unquote
@@ -12,6 +11,15 @@ from .models import OnnxStructure, StructuralIssue, TensorMetadata, ValueMetadat
 
 MAX_NODES = 100_000
 MAX_INITIALIZERS = 100_000
+
+
+def _safe_element_count(shape: list[int]) -> int | None:
+    count = 1
+    for dimension in shape:
+        if dimension < 0 or (dimension and count > (2**63 - 1) // dimension):
+            return None
+        count *= dimension
+    return count
 
 
 def _onnx():
@@ -70,7 +78,7 @@ def _safe_external_locations(tensor: Any, model_dir: Path) -> tuple[list[str], l
     return [location[:256]], issues
 
 
-def inspect_onnx(path: Path, approved_operators: set[str] | None = None) -> tuple[OnnxStructure, str, str, list[StructuralIssue], list[str]]:
+def inspect_onnx(path: Path, approved_operators: set[str] | None = None) -> tuple[OnnxStructure, str, str, list[StructuralIssue], list[str], Any]:
     onnx = _onnx()
     try:
         model = onnx.load_model(path, load_external_data=False)
@@ -116,7 +124,7 @@ def inspect_onnx(path: Path, approved_operators: set[str] | None = None) -> tupl
     external_seen = False
     for tensor in graph.initializer:
         shape = [int(item) for item in tensor.dims]
-        count = prod(shape) if shape else 1
+        count = _safe_element_count(shape)
         locations, external_issues = _safe_external_locations(tensor, path.parent)
         external_seen |= bool(locations or external_issues)
         issues.extend(external_issues)
@@ -138,11 +146,12 @@ def inspect_onnx(path: Path, approved_operators: set[str] | None = None) -> tupl
         inputs=inputs, outputs=outputs, nodes=nodes, node_count=len(nodes),
         operator_profile=operator_profile, unique_operator_count=len(operator_profile),
         initializers=initializers, initializer_count=len(initializers),
-        total_parameter_count=sum(item.element_count or 0 for item in initializers))
+        total_parameter_count=(None if any(item.element_count is None for item in initializers)
+                               else sum(item.element_count or 0 for item in initializers)))
     structure_payload = {
         "format": "onnx", "ir_version": structure.ir_version, "opsets": opsets,
         "inputs": [item.__dict__ for item in inputs], "outputs": [item.__dict__ for item in outputs],
         "nodes": nodes, "initializers": [item.__dict__ for item in initializers],
     }
     parameter_payload = [item.__dict__ for item in initializers]
-    return structure, fingerprint(structure_payload), fingerprint(parameter_payload), issues, limitations
+    return structure, fingerprint(structure_payload), fingerprint(parameter_payload), issues, limitations, model

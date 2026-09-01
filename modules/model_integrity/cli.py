@@ -35,10 +35,22 @@ def main() -> int:
         print(f"  Nodes: {structure.node_count}\n  Parameters: {structure.total_parameter_count}")
         print(f"  Inputs: {len(structure.inputs)}\n  Outputs: {len(structure.outputs)}")
         print(f"  Structural fingerprint: {manifest.fingerprints.structural_sha256}")
+    analysis = manifest.parameter_analysis
+    if analysis:
+        print("\nParameters:")
+        print(f"  Status: {analysis.status}")
+        print(f"  Tensor coverage: {analysis.coverage.tensor_coverage:.1%}")
+        print(f"  Element coverage: {analysis.coverage.element_coverage:.1%}")
+        print(f"  Parameter fingerprint: {manifest.fingerprints.parameter_value_sha256 or 'Unavailable'}")
+        print("\nParameter indicators:")
+        print("  None" if not analysis.issues else "\n".join(
+            f"  [{i.severity_hint}] {i.code} tensor={i.tensor_name or '-'}" for i in analysis.issues))
     print("\nIssues:")
     print("  None" if not manifest.issues else "\n".join(f"  [{i.severity_hint}] {i.code}" for i in manifest.issues))
     print("\nLimitations:")
     print("  None" if not manifest.limitations else "\n".join(f"  {item}" for item in manifest.limitations))
+    if analysis and analysis.limitations:
+        print("\n".join(f"  {item}" for item in analysis.limitations))
     return 0
 
 
