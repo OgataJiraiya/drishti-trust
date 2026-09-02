@@ -268,3 +268,112 @@ D3 emits no Finding v1, ModuleRun, signing material, recommendation, severity, o
 Person-3 lifecycle/scoring/disposition data. D4 will separately address bounded
 prediction/output drift; multi-signal interpretation and Finding integration remain
 D5 and D6 work.
+
+## D4 prediction / supplied-output drift
+
+D4 is implemented on `feat/distribution-prediction-drift` above frozen D3 base
+`56f61a1ff0513913ed7bc6b669a600fee023ca6d`.
+
+D4 answers whether the observable distribution of caller-supplied classification
+outputs changed between a designated reference window and a current window. It
+accepts already-produced `PredictionRecord` values. It does not open images, invoke
+D1 or D3 profiling, execute inference, read weights, provide or download a model,
+call a cloud service, or access the network.
+
+`PredictionOutputSpaceDescriptor` commits the ordered class vocabulary, classification
+family, evidence tier, probability semantics, optional declared model/output-head
+digest/name, and explicit abstention and unknown/OOD semantics into a deterministic
+`prediction-space:sha256:...` ID. Class order is probability-index order and is never
+sorted: changing order, vocabulary, tier, declared semantics, or digest changes the
+space. Exact output-space identity is required for comparison. Without a digest its
+identity basis is `CALLER_DECLARED`; a supplied digest gives `DIGEST_DECLARED` but is
+still not automatically authenticated or trusted.
+
+### Evidence tiers and validation
+
+- `LABEL_ONLY` requires a declared predicted label and supports only predicted-label
+  distribution evidence.
+- `TOP1_CONFIDENCE` additionally requires a finite confidence in `[0,1]`; entropy and
+  margin remain unavailable.
+- `FULL_PROBABILITIES` requires a numeric finite rank-one vector matching the ordered
+  vocabulary, values in `[0,1]`, and sum within the configured `1e-6` tolerance of
+  one. It derives top-1 confidence, normalized Shannon entropy, and top-1 margin.
+
+Full-output labels must equal deterministic NumPy argmax; ties select the lowest class
+index. If confidence is also supplied it must agree with maximum probability within
+the same tolerance. D4 does not silently normalize, clamp, overwrite, or reinterpret
+malformed records. Invalid label, confidence, probability shape/value/sum,
+label/argmax disagreement, confidence disagreement, sample ID, or flag semantics is
+excluded under a bounded failure code. Useful remaining evidence is `PARTIAL`; no
+usable observation is `UNAVAILABLE`.
+
+Entropy is `-sum(p log2 p)` over positive terms only and is divided by `log2(K)` for
+`K>1`, yielding `[0,1]`; a one-class space has normalized entropy zero. Margin is
+`p_top1-p_top2` and is unavailable for one class. Abstention is never inferred from
+confidence, and unknown/OOD status is never inferred by D4. Each rate exists only
+when its descriptor semantics are declared and every usable record supplies the
+corresponding Boolean flag. “Unknown/OOD” always means caller-declared output state,
+not verified OOD correctness.
+
+Default profile bounds are 100,000 samples, 10,000 classes, 10,000,000 probability
+values, 256-character sample IDs, 50 fixed `[0,1]` histogram bins, and 20 bounded
+failure examples. Over-limit sample windows use SHA-256-ranked stable IDs when all
+are present and unique, otherwise evenly spaced row positions. Truncation is
+`PARTIAL`. Complete profiles are order invariant because normalized observation
+commitments are sorted; truncation without IDs can depend on record positions.
+Duplicates remain repeated observations.
+
+The public `PredictionProfile` contains ordered label counts including zero-count
+classes, summaries and fixed histograms for available confidence/entropy/margin,
+declared flag counts/rates, bounded failures, and a sample-set commitment. It contains
+no raw per-sample probability matrix, image, path, embedding, weight, timestamp,
+host/user data, or traceback. Its `prediction-profile:sha256:...` identity commits
+space, material limits, aggregate evidence, status, and sorted limitations, while
+excluding role so identical reference/current content has identical identity.
+
+### Feature comparison
+
+The immutable policy and ordered comparison have deterministic
+`prediction-policy:sha256:...` and `prediction-comparison:sha256:...` IDs. Default
+minimum support is 20 observations on each side; insufficient support produces only
+`PARTIAL` features. Partial input evidence may still be compared, but the report
+remains partial. Unavailable input makes the report unavailable, and any output-space
+mismatch makes every feature incomparable.
+
+- `PREDICTED_LABEL_DISTRIBUTION` uses base-2 Jensen–Shannon divergence and total
+  variation over descriptor class order, shifting only when both thresholds exceed.
+- `TOP1_CONFIDENCE`, `PREDICTION_ENTROPY`, and `TOP1_MARGIN` use absolute standardized
+  mean difference, robust quantile displacement, symmetric median change, histogram
+  Jensen–Shannon, total variation, and fixed-bin Wasserstein distance. Two metric
+  exceedances or an exact constant-distribution change shift a feature. Median
+  direction is explicitly increased, decreased, or same.
+- `ABSTENTION_RATE` and `DECLARED_UNKNOWN_RATE` use direct absolute rate change and a
+  configurable threshold. Rates of zero and one require no division.
+
+All thresholds are configurable detector heuristics—not probabilities, universal
+constants, p-values, or significance tests. Feature states are independently
+`STABLE`, `SHIFTED`, `PARTIAL`, `UNAVAILABLE`, or `INCOMPARABLE`. D4 has no global or
+weighted score, severity, recommendation, disposition, Finding, signing, or backend
+lifecycle integration. Public values are finite and rounded to 12 decimals; all
+descriptors, profiles, and reports support strict JSON with `allow_nan=False`.
+
+### Scientific boundary and limitations
+
+Output drift is not model-performance drift. Without ground truth D4 cannot measure
+accuracy, precision, recall, F1, correctness, or error rate. Confidence drift is not
+calibration drift without outcomes, and D4 computes no ECE or Brier score. A
+predicted-label frequency change may reflect genuine input-population change,
+operating conditions, model behavior, pipeline configuration, or a combination; D4
+does not assign cause.
+
+- Caller declarations and digests are not externally authenticated.
+- Generic thresholds are heuristics; small or partial windows weaken conclusions.
+- Label-only evidence cannot support confidence, entropy, or margin.
+- Top-1 confidence cannot reconstruct a full predictive distribution.
+- Aggregate evidence can miss slice-specific output behavior.
+- Detection and segmentation adapters are not implemented in D4.
+- D4 does not establish compromise, poisoning, unsafe deployment, or malicious intent.
+- No detected output shift proves safety, calibration, performance, or future
+  reliability; reference designation is not authenticity.
+- D4 does not combine D2, D3, and D4 evidence. D5 will perform separately bounded
+  multi-signal interpretation; D6 remains responsible for Finding integration.
