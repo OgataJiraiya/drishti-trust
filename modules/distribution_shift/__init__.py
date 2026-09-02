@@ -12,6 +12,14 @@ from .representation_models import (ExtractorIdentityBasis, NormalizationMode,
     RepresentationSpaceDescriptor, RepresentationSummary, VarianceSummary)
 from .representation_profile import RepresentationProfiler, RepresentationWindowEvidence
 from .representation_comparison import RepresentationShiftComparator
+from .prediction_models import (PredictionComparisonPolicy, PredictionDirection,
+    PredictionEvidenceTier, PredictionFailure, PredictionFeatureComparison,
+    PredictionFeatureState, PredictionIdentityBasis, PredictionMetric,
+    PredictionOutputFamily, PredictionOutputSpaceDescriptor, PredictionProfile,
+    PredictionProfileLimits, PredictionProfileStatus, PredictionRecord,
+    PredictionReportStatus, PredictionRole, PredictionShiftReport, PredictionSummary)
+from .prediction_profile import PredictionProfiler
+from .prediction_comparison import PredictionShiftComparator
 
 __all__ = ["FeatureSummary", "ImageWindowProfile", "ImageWindowProfiler", "ProfileLimits",
            "ProfileStatus", "ReferenceSemantics", "WindowRole", "DistributionShiftComparator",
@@ -23,3 +31,9 @@ __all__ += ["ExtractorIdentityBasis", "NormalizationMode", "RepresentationCompar
     "RepresentationReportStatus", "RepresentationRole", "RepresentationShiftReport",
     "RepresentationSpaceDescriptor", "RepresentationSummary", "VarianceSummary",
     "RepresentationProfiler", "RepresentationWindowEvidence", "RepresentationShiftComparator"]
+__all__ += ["PredictionComparisonPolicy", "PredictionDirection", "PredictionEvidenceTier",
+    "PredictionFailure", "PredictionFeatureComparison", "PredictionFeatureState",
+    "PredictionIdentityBasis", "PredictionMetric", "PredictionOutputFamily",
+    "PredictionOutputSpaceDescriptor", "PredictionProfile", "PredictionProfileLimits",
+    "PredictionProfileStatus", "PredictionRecord", "PredictionReportStatus", "PredictionRole",
+    "PredictionShiftReport", "PredictionSummary", "PredictionProfiler", "PredictionShiftComparator"]
