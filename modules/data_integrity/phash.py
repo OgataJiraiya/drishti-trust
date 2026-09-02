@@ -1,19 +1,17 @@
-from pathlib import Path
 from typing import Any
 
 import imagehash
 from PIL import Image
 
-
-SUPPORTED_IMAGE_EXTENSIONS = {
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".bmp",
-    ".tif",
-    ".tiff",
-    ".webp",
-}
+from .bounds import (
+    DEFAULT_MAX_EVIDENCE_ITEMS,
+    DEFAULT_MAX_EVIDENCE_LENGTH,
+    DEFAULT_MAX_PATH_LENGTH,
+    bounded_evidence,
+    bounded_text,
+    stable_finding_id,
+)
+from .safe_images import safe_image_files
 
 
 def calculate_phash(file_path: str) -> str:
@@ -32,7 +30,10 @@ def phash_distance(hash_a: str, hash_b: str) -> int:
 def find_near_duplicates(
     images_dir: str,
     threshold: int = 10,
-) -> list[dict[str, Any]]:
+    *, dataset_root: str | None = None, max_images: int | None = None,
+    max_pair_comparisons: int | None = None, max_matches: int | None = None,
+    return_metadata: bool = False,
+) -> list[dict[str, Any]] | dict[str, Any]:
     """
     Find visually similar images using pHash.
 
@@ -40,17 +41,9 @@ def find_near_duplicates(
     to the threshold are returned.
     """
 
+    from pathlib import Path
     images_path = Path(images_dir)
-
-    if not images_path.is_dir():
-        raise ValueError(f"Images directory does not exist: {images_dir}")
-
-    image_files = sorted(
-        file_path
-        for file_path in images_path.rglob("*")
-        if file_path.is_file()
-        and file_path.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
-    )
+    image_files = safe_image_files(images_path, dataset_root, max_images=max_images)
 
     hashes = {}
 
@@ -62,8 +55,12 @@ def find_near_duplicates(
 
     paths = list(hashes)
 
+    comparisons = 0
     for index, first_path in enumerate(paths):
         for second_path in paths[index + 1:]:
+            if max_pair_comparisons is not None and comparisons >= max_pair_comparisons:
+                return {"matches": matches, "partial": True, "reason": "max_pair_comparisons reached."} if return_metadata else matches
+            comparisons += 1
             distance = phash_distance(
                 hashes[first_path],
                 hashes[second_path],
@@ -77,8 +74,10 @@ def find_near_duplicates(
                         "phash_distance": distance,
                     }
                 )
+                if max_matches is not None and len(matches) >= max_matches:
+                    return {"matches": matches, "partial": True, "reason": "max_matches reached."} if return_metadata else matches
 
-    return matches
+    return {"matches": matches, "partial": False} if return_metadata else matches
 
 
 def phash_confidence(
@@ -105,6 +104,10 @@ def phash_confidence(
 
 def create_near_duplicate_findings(
     matches: list[dict[str, Any]],
+    *,
+    max_evidence_items: int = DEFAULT_MAX_EVIDENCE_ITEMS,
+    max_evidence_length: int = DEFAULT_MAX_EVIDENCE_LENGTH,
+    max_path_length: int = DEFAULT_MAX_PATH_LENGTH,
 ) -> list[dict[str, Any]]:
     """
     Convert pHash matches into Finding Schema v1 findings.
@@ -112,8 +115,16 @@ def create_near_duplicate_findings(
 
     findings = []
 
-    for index, match in enumerate(matches, start=1):
+    for match in sorted(matches, key=lambda item: (item["image_a"], item["image_b"])):
         distance = match["phash_distance"]
+        raw_asset_id = match["image_a"]
+        raw_match = match["image_b"]
+        asset_id, asset_truncated = bounded_text(raw_asset_id, max_path_length)
+        matched_sample, match_truncated = bounded_text(raw_match, max_path_length)
+        raw_evidence = [f"phash_distance={distance}", f"matched_sample={raw_match}"]
+        evidence, evidence_truncated = bounded_evidence(
+            raw_evidence, max_items=max_evidence_items, max_length=max_evidence_length
+        )
         confidence = phash_confidence(distance)
 
         if confidence >= 0.85:
@@ -125,26 +136,25 @@ def create_near_duplicate_findings(
 
         findings.append(
             {
-                "finding_id": f"F-DATA-{index:03d}",
+                "finding_id": stable_finding_id(
+                    "dataset_integrity", "NEAR_DUPLICATE", raw_asset_id, raw_evidence
+                ),
                 "module": "dataset_integrity",
                 "asset_type": "sample",
-                "asset_id": match["image_a"],
+                "asset_id": asset_id,
                 "category": "NEAR_DUPLICATE",
                 "severity": severity,
                 "confidence": confidence,
                 "reason": (
-                    f"Sample is perceptually similar to "
-                    f"{match['image_b']}."
+                    f"Sample is perceptually similar to {matched_sample}."
                 ),
-                "evidence": [
-                    f"phash_distance={distance}",
-                    f"matched_sample={match['image_b']}",
-                ],
+                "evidence": evidence,
                 "recommendation": "REVIEW",
                 "limitations": [
                     "Similarity heuristic; visually similar legitimate "
                     "images may be flagged."
                 ],
+                "truncated": asset_truncated or match_truncated or evidence_truncated,
             }
         )
 

@@ -1,5 +1,13 @@
 from collections import Counter
 from typing import Any
+from .bounds import (
+    DEFAULT_MAX_EVIDENCE_ITEMS,
+    DEFAULT_MAX_EVIDENCE_LENGTH,
+    DEFAULT_MAX_IDENTIFIER_LENGTH,
+    bounded_evidence,
+    bounded_text,
+    stable_finding_id,
+)
 
 
 def find_label_anomalies(
@@ -36,6 +44,10 @@ def find_label_anomalies(
 
 def create_label_anomaly_findings(
     anomalies: list[dict[str, Any]],
+    *,
+    max_evidence_items: int = DEFAULT_MAX_EVIDENCE_ITEMS,
+    max_evidence_length: int = DEFAULT_MAX_EVIDENCE_LENGTH,
+    max_identifier_length: int = DEFAULT_MAX_IDENTIFIER_LENGTH,
 ) -> list[dict[str, Any]]:
     """
     Convert label anomalies into Finding Schema v1 findings.
@@ -43,32 +55,38 @@ def create_label_anomaly_findings(
 
     findings = []
 
-    for index, anomaly in enumerate(anomalies, start=1):
+    for anomaly in anomalies:
         label = anomaly["label"]
         count = anomaly["count"]
+        raw_asset_id = f"label:{label}"
+        asset_id, asset_truncated = bounded_text(raw_asset_id, max_identifier_length)
+        raw_evidence = [f"label={label}", f"label_count={count}"]
+        evidence, evidence_truncated = bounded_evidence(
+            raw_evidence, max_items=max_evidence_items, max_length=max_evidence_length
+        )
 
         findings.append(
             {
-                "finding_id": f"F-DATA-{index:03d}",
+                "finding_id": stable_finding_id(
+                    "dataset_integrity", "LABEL_ANOMALY", raw_asset_id, raw_evidence
+                ),
                 "module": "dataset_integrity",
                 "asset_type": "dataset",
-                "asset_id": f"label:{label}",
+                "asset_id": asset_id,
                 "category": "LABEL_ANOMALY",
                 "severity": "MEDIUM",
                 "confidence": 0.75,
                 "reason": (
-                    f"Label '{label}' occurs only {count} time(s) "
+                    f"Label '{bounded_text(label, max_identifier_length)[0]}' occurs only {count} time(s) "
                     "in the dataset."
                 ),
-                "evidence": [
-                    f"label={label}",
-                    f"label_count={count}",
-                ],
+                "evidence": evidence,
                 "recommendation": "REVIEW",
                 "limitations": [
                     "Rare labels may be legitimate and are not "
                     "evidence of poisoning by themselves."
                 ],
+                "truncated": asset_truncated or evidence_truncated,
             }
         )
 

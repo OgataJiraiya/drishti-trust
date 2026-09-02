@@ -68,12 +68,12 @@ def test_calibrate_ood_threshold_for_empty_scores():
     }
 
 
-def test_calibrate_ood_threshold_for_small_dataset_uses_percentile():
+def test_calibrate_ood_threshold_for_small_dataset_is_unavailable():
     threshold, metadata = calibrate_ood_threshold([0.10, 0.20, 0.30])
 
-    assert metadata["method"] == "percentile_fallback"
-    assert threshold == 0.29
-    assert metadata["p95"] == 0.29
+    assert metadata["method"] == "insufficient_samples"
+    assert threshold is None
+    assert "Insufficient samples" in metadata["reason"]
 
 
 def test_create_ood_finding():
@@ -90,13 +90,13 @@ def test_create_ood_finding():
 
     finding = findings[0]
 
-    assert finding["finding_id"] == "F-DATA-001"
+    assert finding["finding_id"].startswith("F-DATA-")
     assert finding["module"] == "dataset_integrity"
     assert finding["asset_type"] == "sample"
     assert finding["asset_id"] == "images/unusual.jpg"
     assert finding["category"] == "OOD_OUTLIER"
     assert finding["severity"] == "LOW"
-    assert finding["confidence"] == 0.6
+    assert finding["confidence"] == 0.0
     assert finding["recommendation"] == "REVIEW"
 
 

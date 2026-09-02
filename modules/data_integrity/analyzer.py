@@ -1,6 +1,8 @@
 """Unified, dataset-agnostic orchestration for data-integrity checks."""
 
 from collections import Counter
+import hashlib
+from itertools import combinations
 from pathlib import Path
 from typing import Any
 
@@ -17,15 +19,18 @@ from .label_anomaly import (
 from .ood import analyze_ood, create_ood_findings
 from .phash import create_near_duplicate_findings, find_near_duplicates
 from .risk import aggregate_contributor_risk, aggregate_dataset_risk
+from .safe_images import SafeImageError, safe_image_files
+from .bounds import (
+    DEFAULT_MAX_DUPLICATE_PATHS,
+    DEFAULT_MAX_EVIDENCE_ITEMS,
+    DEFAULT_MAX_EVIDENCE_LENGTH,
+    DEFAULT_MAX_IDENTIFIER_LENGTH,
+    DEFAULT_MAX_PATH_LENGTH,
+)
 
 
 def _image_count(directory: Path) -> int:
-    return sum(
-        1
-        for path in directory.rglob("*")
-        if path.is_file()
-        and path.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
-    )
+    return len(safe_image_files(directory))
 
 
 def _discover_images_directory(
@@ -91,13 +96,15 @@ def _discover_classes_file(
     return None
 
 
-def _renumber_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Give combined findings stable, unique Finding Schema v1 IDs."""
-
-    numbered = []
-    for index, finding in enumerate(findings, start=1):
-        numbered.append({**finding, "finding_id": f"F-DATA-{index:03d}"})
-    return numbered
+def _stable_findings(findings: list[dict[str, Any]], max_findings: int | None) -> list[dict[str, Any]]:
+    """Assign identity-derived IDs so detector order cannot renumber findings."""
+    result = []
+    for finding in findings:
+        identity = "|".join([str(finding.get("module")), str(finding.get("category")), str(finding.get("asset_id")), *sorted(map(str, finding.get("evidence", [])))])
+        identifier = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16].upper()
+        result.append({**finding, "finding_id": f"F-DATA-{identifier}"})
+    result.sort(key=lambda item: item["finding_id"])
+    return result if max_findings is None else result[:max_findings]
 
 
 def analyze_dataset(
@@ -116,6 +123,18 @@ def analyze_dataset(
     label_min_count: int = 2,
     ood_calibration: str = "auto",
     ood_threshold: float | None = None,
+    max_images: int | None = 10000,
+    max_pair_comparisons: int | None = 1_000_000,
+    max_matches: int | None = 10000,
+    max_findings: int | None = 10000,
+    max_file_size: int | None = None,
+    ood_min_calibration_samples: int = 5,
+    require_labels: bool = False,
+    max_evidence_items: int = DEFAULT_MAX_EVIDENCE_ITEMS,
+    max_evidence_length: int = DEFAULT_MAX_EVIDENCE_LENGTH,
+    max_path_length: int = DEFAULT_MAX_PATH_LENGTH,
+    max_identifier_length: int = DEFAULT_MAX_IDENTIFIER_LENGTH,
+    max_duplicate_paths: int = DEFAULT_MAX_DUPLICATE_PATHS,
 ) -> dict[str, Any]:
     """Run supported integrity checks and return one Finding Schema v1 result.
 
@@ -134,15 +153,27 @@ def analyze_dataset(
     skipped_detectors: dict[str, str] = {}
     detector_errors: dict[str, str] = {}
     findings: list[dict[str, Any]] = []
+    exact_duplicates: dict[str, list[str]] = {}
     samples: list[dict[str, Any]] = []
     ood_calibration_metadata: dict[str, Any] | None = None
+    partial = False
+    resource_limits_reached: dict[str, str] = {}
+    resource_limits = {"max_images": max_images, "max_pair_comparisons": max_pair_comparisons, "max_matches": max_matches, "max_findings": max_findings}
+    try:
+        all_images = safe_image_files(image_path, root, **({"max_file_size": max_file_size} if max_file_size is not None else {}))
+        if max_images is not None and len(all_images) > max_images:
+            partial = True
+            resource_limits_reached["max_images"] = "Image processing limited by max_images."
+            skipped_detectors["image_limit"] = resource_limits_reached["max_images"]
+    except SafeImageError as exc:
+        raise ValueError(str(exc)) from exc
 
     discovered_labels = _discover_labels_directory(root, image_path, labels_dir)
     discovered_classes = _discover_classes_file(root, classes_file)
 
     if annotation_file is not None:
         try:
-            samples = load_coco(annotation_file)
+            samples = load_coco(annotation_file, dataset_root=root, max_images=max_images)
         except DatasetIngestionError as exc:
             detector_errors["ingestion"] = str(exc)
     elif discovered_labels is not None and discovered_classes is not None:
@@ -151,6 +182,9 @@ def analyze_dataset(
                 str(image_path),
                 str(discovered_labels),
                 str(discovered_classes),
+                require_labels=require_labels,
+                max_images=max_images,
+                dataset_root=root,
             )
         except DatasetIngestionError as exc:
             detector_errors["ingestion"] = str(exc)
@@ -161,8 +195,16 @@ def analyze_dataset(
 
     if run_duplicates:
         try:
+            duplicate_options = {"dataset_root": str(root), "max_images": max_images}
+            if max_file_size is not None:
+                duplicate_options["max_file_size"] = max_file_size
+            exact_duplicates = find_exact_duplicates(str(image_path), **duplicate_options)
             findings.extend(create_duplicate_findings(
-                find_exact_duplicates(str(image_path))
+                exact_duplicates,
+                max_evidence_items=max_evidence_items,
+                max_evidence_length=max_evidence_length,
+                max_path_length=max_path_length,
+                max_duplicate_paths=max_duplicate_paths,
             ))
         except (OSError, ValueError) as exc:
             detector_errors["duplicates"] = str(exc)
@@ -171,8 +213,21 @@ def analyze_dataset(
 
     if run_phash:
         try:
+            match_result = find_near_duplicates(str(image_path), phash_threshold, dataset_root=str(root), max_images=max_images, max_pair_comparisons=max_pair_comparisons, max_matches=max_matches, return_metadata=True)
+            if isinstance(match_result, list):
+                matches = match_result
+                match_result = {"partial": False}
+            else:
+                matches = match_result["matches"]
+            if match_result.get("partial"):
+                partial = True
+                resource_limits_reached["phash"] = match_result["reason"]
+                skipped_detectors["phash"] = match_result["reason"]
             findings.extend(create_near_duplicate_findings(
-                find_near_duplicates(str(image_path), phash_threshold)
+                matches,
+                max_evidence_items=max_evidence_items,
+                max_evidence_length=max_evidence_length,
+                max_path_length=max_path_length,
             ))
         except (OSError, ValueError) as exc:
             detector_errors["phash"] = str(exc)
@@ -182,7 +237,10 @@ def analyze_dataset(
     if run_labels:
         if samples:
             findings.extend(create_label_anomaly_findings(
-                find_label_anomalies(samples, label_min_count)
+                find_label_anomalies(samples, label_min_count),
+                max_evidence_items=max_evidence_items,
+                max_evidence_length=max_evidence_length,
+                max_identifier_length=max_identifier_length,
             ))
         elif "labels" not in skipped_detectors:
             skipped_detectors["labels"] = (
@@ -193,23 +251,42 @@ def analyze_dataset(
 
     if run_ood:
         try:
-            ood_result = analyze_ood(
-                str(image_path),
-                threshold=ood_threshold,
-                calibration=ood_calibration,
-            )
+            ood_result = analyze_ood(str(image_path), threshold=ood_threshold, calibration=ood_calibration,
+                                     dataset_root=str(root), max_images=max_images,
+                                     min_calibration_samples=ood_min_calibration_samples)
             ood_calibration_metadata = ood_result["calibration"]
-            findings.extend(create_ood_findings(ood_result["outliers"]))
+            if ood_result.get("unavailable"):
+                skipped_detectors["ood"] = ood_result["reason"]
+            elif ood_calibration_metadata and ood_calibration_metadata.get("method") == "insufficient_samples":
+                partial = True
+                skipped_detectors["ood"] = ood_calibration_metadata["reason"]
+                resource_limits_reached["ood_calibration"] = ood_calibration_metadata["reason"]
+            findings.extend(create_ood_findings(
+                ood_result["outliers"], ood_calibration_metadata,
+                max_evidence_items=max_evidence_items,
+                max_evidence_length=max_evidence_length,
+                max_path_length=max_path_length,
+            ))
         except (OSError, RuntimeError, ValueError) as exc:
             detector_errors["ood"] = str(exc)
     else:
         skipped_detectors["ood"] = "Disabled by configuration."
 
-    findings = _renumber_findings(findings)
-    dataset_risk = aggregate_dataset_risk(findings)
+    # Exact byte duplicates are a stronger statement than their pHash=0 pair.
+    exact_pairs = {tuple(sorted(pair)) for paths in exact_duplicates.values() for pair in combinations(paths, 2)}
+    findings = [finding for finding in findings if not (finding["category"] == "NEAR_DUPLICATE" and tuple(sorted((finding["asset_id"], next((item.split("=", 1)[1] for item in finding["evidence"] if item.startswith("matched_sample=")), "")))) in exact_pairs)]
+    unbounded_count = len(findings)
+    findings = _stable_findings(findings, max_findings)
+    if len(findings) != unbounded_count:
+        partial = True
+        resource_limits_reached["max_findings"] = "Findings limited by max_findings."
+        skipped_detectors["findings_limit"] = resource_limits_reached["max_findings"]
+    detector_risk_summary = aggregate_dataset_risk(findings)
 
     if run_risk:
-        risk_summary = aggregate_contributor_risk(findings, samples)
+        risk_summary = aggregate_contributor_risk(
+            findings, samples, max_identifier_length=max_identifier_length
+        )
         if not risk_summary:
             skipped_detectors["risk"] = (
                 "No findings with contributor metadata were available."
@@ -230,9 +307,12 @@ def analyze_dataset(
         "findings_by_severity": dict(
             sorted(Counter(finding["severity"] for finding in findings).items())
         ),
-        "dataset_risk": dataset_risk,
+        "detector_risk_summary": detector_risk_summary,
         "ood_calibration": ood_calibration_metadata,
         "risk_summary": risk_summary,
         "skipped_detectors": skipped_detectors,
         "detector_errors": detector_errors,
+        "partial": partial,
+        "resource_limits_reached": resource_limits_reached,
+        "resource_limits": resource_limits,
     }

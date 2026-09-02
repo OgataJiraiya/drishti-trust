@@ -2,6 +2,7 @@ from collections import defaultdict
 from collections import Counter
 import math
 from typing import Any
+from .bounds import DEFAULT_MAX_IDENTIFIER_LENGTH, bounded_text
 
 
 SEVERITY_WEIGHTS = {
@@ -54,7 +55,7 @@ def _dataset_severity(risk_score: float) -> str:
 def aggregate_dataset_risk(
     findings: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Create a deterministic, explainable dataset-risk heuristic.
+    """Create a deterministic detector-local informational heuristic.
 
     Scores are severity weights multiplied by confidence. Repeated records of
     the same category/asset/evidence event contribute only their highest score,
@@ -84,6 +85,8 @@ def aggregate_dataset_risk(
     duplicate_finding_count = len(findings) - unique_finding_count
 
     return {
+        "kind": "DETECTOR_LOCAL_HEURISTIC",
+        "authoritative": False,
         "risk_score": risk_score,
         "severity": _dataset_severity(risk_score),
         "finding_count": len(findings),
@@ -92,7 +95,8 @@ def aggregate_dataset_risk(
         "findings_by_category": dict(sorted(findings_by_category.items())),
         "findings_by_severity": dict(sorted(findings_by_severity.items())),
         "explanation": (
-            "Dataset risk is a capped severity-weighted confidence heuristic "
+            "Detector-local integrity heuristic only; it is not an overall, system, or assurance score. "
+            "It never overrides the assurance system. Scores are a capped severity-weighted confidence heuristic "
             "(LOW=10, MEDIUM=30, HIGH=60, CRITICAL=100). Repeated records "
             "for the same category, asset, and evidence count once at their "
             "highest contribution; it is a review signal, not proof of compromise."
@@ -103,6 +107,8 @@ def aggregate_dataset_risk(
 def aggregate_contributor_risk(
     findings: list[dict[str, Any]],
     samples: list[dict[str, Any]],
+    *,
+    max_identifier_length: int = DEFAULT_MAX_IDENTIFIER_LENGTH,
 ) -> list[dict[str, Any]]:
     """
     Aggregate suspicious findings by contributor and batch.
@@ -158,14 +164,25 @@ def aggregate_contributor_risk(
             }
         )
 
-        results.append(
-            {
-                "contributor_id": contributor_id,
+        bounded_contributor, contributor_truncated = bounded_text(
+            contributor_id, max_identifier_length
+        )
+        bounded_batches = []
+        batch_truncated = False
+        for batch in batches:
+            bounded_batch, was_truncated = bounded_text(batch, max_identifier_length)
+            bounded_batches.append(bounded_batch)
+            batch_truncated = batch_truncated or was_truncated
+
+        result = {
+                "contributor_id": bounded_contributor,
                 "finding_count": findings_count,
                 "average_confidence": average_confidence,
-                "affected_batches": batches,
+                "affected_batches": bounded_batches,
             }
-        )
+        if contributor_truncated or batch_truncated:
+            result["truncated"] = True
+        results.append(result)
 
     return sorted(
         results,

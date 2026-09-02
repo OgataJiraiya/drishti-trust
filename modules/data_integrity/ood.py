@@ -1,21 +1,23 @@
-from pathlib import Path
 from typing import Any
+import os
 
 import numpy as np
 import torch
 from PIL import Image
+# These must be present before importing transformers/huggingface_hub, whose
+# offline configuration is read at import time in some supported versions.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 from transformers import CLIPModel, CLIPProcessor
-
-
-SUPPORTED_IMAGE_EXTENSIONS = {
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".bmp",
-    ".tif",
-    ".tiff",
-    ".webp",
-}
+from .bounds import (
+    DEFAULT_MAX_EVIDENCE_ITEMS,
+    DEFAULT_MAX_EVIDENCE_LENGTH,
+    DEFAULT_MAX_PATH_LENGTH,
+    bounded_evidence,
+    bounded_text,
+    stable_finding_id,
+)
+from .safe_images import safe_image_files
 
 MIN_CALIBRATION_SAMPLES = 5
 MAD_SCALE_FACTOR = 1.4826
@@ -81,7 +83,10 @@ def calibrate_ood_threshold(
         "percentile": percentile,
     }
 
-    if sample_count < MIN_CALIBRATION_SAMPLES or mad == 0:
+    if sample_count < MIN_CALIBRATION_SAMPLES:
+        metadata.update({"method": "insufficient_samples", "reason": "Insufficient samples for reliable OOD calibration."})
+        return None, metadata
+    if mad == 0:
         metadata["method"] = "percentile_fallback"
         metadata["threshold"] = round(p95, 6)
         return metadata["threshold"], metadata
@@ -110,8 +115,11 @@ def load_clip_model(
 ):
     """Load the pretrained CLIP image model and processor."""
 
-    processor = CLIPProcessor.from_pretrained(model_name)
-    model = CLIPModel.from_pretrained(model_name)
+    # Belt-and-suspenders offline policy: transformers is never allowed to
+    # consult the Hub even when a dependency changes its fallback behavior.
+    # Explicitly prevent transformers from contacting Hugging Face.
+    processor = CLIPProcessor.from_pretrained(model_name, local_files_only=True)
+    model = CLIPModel.from_pretrained(model_name, local_files_only=True)
 
     model.eval()
 
@@ -202,6 +210,9 @@ def analyze_ood(
     calibration: str = "auto",
     processor=None,
     model=None,
+    min_calibration_samples: int = MIN_CALIBRATION_SAMPLES,
+    max_images: int | None = None,
+    dataset_root: str | None = None,
 ) -> dict[str, Any]:
     """Analyze image embeddings and return OOD outliers with calibration.
 
@@ -210,22 +221,15 @@ def analyze_ood(
     claim that any image is poisoned or invalid.
     """
 
-    images_path = Path(images_dir)
-
-    if not images_path.is_dir():
-        raise ValueError(
-            f"Images directory does not exist: {images_dir}"
-        )
-
     if processor is None or model is None:
-        processor, model = load_clip_model()
-
-    image_files = sorted(
-        file_path
-        for file_path in images_path.rglob("*")
-        if file_path.is_file()
-        and file_path.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
-    )
+        try:
+            processor, model = load_clip_model()
+        except (OSError, RuntimeError, EnvironmentError) as exc:
+            return {"outliers": [], "scores": {}, "calibration": None, "unavailable": True,
+                    "reason": f"OOD_UNAVAILABLE: local CLIP model is unavailable ({exc})."}
+    from pathlib import Path
+    images_path = Path(images_dir)
+    image_files = safe_image_files(images_path, dataset_root, max_images=max_images)
 
     embeddings = {}
 
@@ -259,9 +263,12 @@ def analyze_ood(
             "sample_count": len(scores),
         }
     else:
-        active_threshold, calibration_metadata = calibrate_ood_threshold(
-            scores
-        )
+        active_threshold, calibration_metadata = calibrate_ood_threshold(scores)
+        if len(scores) < min_calibration_samples:
+            calibration_metadata.update({"method": "insufficient_samples", "threshold": None,
+                                         "reason": "Insufficient samples for reliable OOD calibration.",
+                                         "minimum_samples": min_calibration_samples})
+            active_threshold = None
 
     if active_threshold is None:
         return {
@@ -314,19 +321,26 @@ def find_ood_outliers(
 
 def create_ood_findings(
     outliers: list[dict[str, Any]],
+    calibration: dict[str, Any] | None = None,
+    *,
+    max_evidence_items: int = DEFAULT_MAX_EVIDENCE_ITEMS,
+    max_evidence_length: int = DEFAULT_MAX_EVIDENCE_LENGTH,
+    max_path_length: int = DEFAULT_MAX_PATH_LENGTH,
 ) -> list[dict[str, Any]]:
     """Convert OOD results into Finding Schema v1 findings."""
 
     findings = []
 
-    for index, outlier in enumerate(outliers, start=1):
+    threshold = float((calibration or {}).get("threshold") or 0.0)
+    support = int((calibration or {}).get("sample_count") or 0)
+    for outlier in outliers:
         score = outlier["ood_score"]
         image_path = outlier["image"]
+        asset_id, asset_truncated = bounded_text(image_path, max_path_length)
 
-        confidence = min(
-            1.0,
-            round(score / 0.5, 2),
-        )
+        # Explainable review-confidence heuristic, deliberately not probability.
+        excess = max(0.0, score - threshold)
+        confidence = round(min(1.0, excess / max(0.05, 1.0 - threshold) * min(1.0, support / 20)), 2)
 
         if confidence >= 0.85:
             severity = "HIGH"
@@ -335,12 +349,18 @@ def create_ood_findings(
         else:
             severity = "LOW"
 
+        raw_evidence = [f"ood_score={score}", f"calibrated_threshold={threshold}"]
+        evidence, evidence_truncated = bounded_evidence(
+            raw_evidence, max_items=max_evidence_items, max_length=max_evidence_length
+        )
         findings.append(
             {
-                "finding_id": f"F-DATA-{index:03d}",
+                "finding_id": stable_finding_id(
+                    "dataset_integrity", "OOD_OUTLIER", image_path, raw_evidence
+                ),
                 "module": "dataset_integrity",
                 "asset_type": "sample",
-                "asset_id": image_path,
+                "asset_id": asset_id,
                 "category": "OOD_OUTLIER",
                 "severity": severity,
                 "confidence": confidence,
@@ -348,15 +368,15 @@ def create_ood_findings(
                     "Image embedding is unusually far from "
                     "the dataset visual centroid."
                 ),
-                "evidence": [
-                    f"ood_score={score}",
-                ],
+                "evidence": evidence,
                 "recommendation": "REVIEW",
                 "limitations": [
                     "OOD score is a dataset-relative heuristic.",
                     "Unusual legitimate images may be flagged.",
                     "Threshold requires calibration for the target dataset.",
+                    "Confidence is a deterministic heuristic, not a probability.",
                 ],
+                "truncated": asset_truncated or evidence_truncated,
             }
         )
 

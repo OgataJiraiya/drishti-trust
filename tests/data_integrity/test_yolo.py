@@ -1,4 +1,6 @@
-from modules.data_integrity.ingestion import load_yolo
+import pytest
+
+from modules.data_integrity.ingestion import DatasetIngestionError, load_yolo
 
 
 def test_load_yolo(tmp_path):
@@ -41,3 +43,28 @@ def test_load_yolo(tmp_path):
 
     assert samples[1]["sample_id"] == "img_002.jpg"
     assert samples[1]["labels"] == ["bicycle"]
+
+
+def test_load_yolo_max_images_is_deterministic(tmp_path):
+    images_dir = tmp_path / "images"
+    labels_dir = tmp_path / "labels"
+    classes_file = tmp_path / "classes.txt"
+    images_dir.mkdir()
+    labels_dir.mkdir()
+    classes_file.write_text("car\n")
+    for name in ("b.jpg", "a.jpg"):
+        (images_dir / name).write_bytes(b"fake")
+    samples = load_yolo(str(images_dir), str(labels_dir), str(classes_file), max_images=1)
+    assert [sample["sample_id"] for sample in samples] == ["a.jpg"]
+
+
+def test_load_yolo_require_labels_policy(tmp_path):
+    images_dir = tmp_path / "images"
+    labels_dir = tmp_path / "labels"
+    classes_file = tmp_path / "classes.txt"
+    images_dir.mkdir()
+    labels_dir.mkdir()
+    classes_file.write_text("car\n")
+    (images_dir / "a.jpg").write_bytes(b"fake")
+    with pytest.raises(DatasetIngestionError, match="Missing YOLO label"):
+        load_yolo(str(images_dir), str(labels_dir), str(classes_file), require_labels=True)

@@ -1,6 +1,9 @@
 import json
+import math
 from pathlib import Path
 from typing import Any
+from PIL import Image, UnidentifiedImageError
+from .safe_images import SafeImageError, safe_dataset_path, safe_image_files
 
 
 SUPPORTED_IMAGE_EXTENSIONS = {
@@ -45,6 +48,9 @@ def load_coco(
     contributor_id: str | None = None,
     batch_id: str | None = None,
     dataset_id: str | None = None,
+    *,
+    dataset_root: str | Path | None = None,
+    max_images: int | None = None,
 ) -> list[dict[str, Any]]:
     """Load COCO annotations into the common sample representation."""
 
@@ -56,11 +62,11 @@ def load_coco(
             f"Unable to read COCO annotation file: {annotation_file}"
         ) from exc
 
+    annotation_path = Path(annotation_file)
     categories = {}
     for category in coco.get("categories", []):
         category_id = category.get("id")
-
-        if category_id in categories:
+        if category_id is None or category_id in categories:
             raise DatasetIngestionError(
                 f"Duplicate COCO category ID: {category_id}"
             )
@@ -70,8 +76,7 @@ def load_coco(
     images = {}
     for image in coco.get("images", []):
         image_id = image.get("id")
-
-        if image_id in images:
+        if image_id is None or image_id in images:
             raise DatasetIngestionError(
                 f"Duplicate COCO image ID: {image_id}"
             )
@@ -80,7 +85,12 @@ def load_coco(
 
     annotations_by_image: dict[int, list[dict[str, Any]]] = {}
 
+    annotation_ids = set()
     for annotation in coco.get("annotations", []):
+        annotation_id = annotation.get("id")
+        if annotation_id is None or annotation_id in annotation_ids:
+            raise DatasetIngestionError(f"Duplicate COCO annotation ID: {annotation_id}")
+        annotation_ids.add(annotation_id)
         image_id = annotation.get("image_id")
         category_id = annotation.get("category_id")
 
@@ -94,6 +104,12 @@ def load_coco(
                 f"COCO annotation references unknown category ID: {category_id}"
             )
 
+        bbox = annotation.get("bbox")
+        if (not isinstance(bbox, list) or len(bbox) != 4 or
+                any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in bbox) or
+            any(not math.isfinite(value) for value in bbox) or
+            bbox[2] <= 0 or bbox[3] <= 0):
+            raise DatasetIngestionError(f"Malformed COCO bounding box for annotation ID: {annotation_id}")
         annotations_by_image.setdefault(image_id, []).append(
             {
                 "annotation_id": annotation.get("id"),
@@ -107,9 +123,40 @@ def load_coco(
             }
         )
 
+    root = Path(dataset_root) if dataset_root is not None else annotation_path.parent
+    image_dimensions: dict[int, tuple[int, int]] = {}
+    for image_id, image in images.items():
+        image_path = image.get("file_name")
+        if not image_path:
+            raise DatasetIngestionError(f"COCO image {image_id} has no file_name")
+        try:
+            resolved = safe_dataset_path(root, image_path)
+            with Image.open(resolved) as opened_image:
+                image_dimensions[image_id] = opened_image.size
+        except (SafeImageError, OSError, UnidentifiedImageError) as exc:
+            raise DatasetIngestionError(
+                f"Unable to read COCO image {image_id}: {image_path}"
+            ) from exc
+
+    for image_id, annotations in annotations_by_image.items():
+        width, height = image_dimensions[image_id]
+        for annotation in annotations:
+            x, y, box_width, box_height = annotation["bbox"]
+            if x < 0 or y < 0 or x + box_width > width or y + box_height > height:
+                raise DatasetIngestionError(
+                    f"COCO bounding box exceeds image dimensions for annotation ID: "
+                    f"{annotation['annotation_id']}"
+                )
+
     samples = []
 
-    for image_id in sorted(images):
+    selected_image_ids = sorted(images)
+    if max_images is not None:
+        if max_images <= 0:
+            raise ValueError("max_images must be greater than zero.")
+        selected_image_ids = selected_image_ids[:max_images]
+
+    for image_id in selected_image_ids:
         image = images[image_id]
         image_path = image.get("file_name")
 
@@ -117,6 +164,10 @@ def load_coco(
             raise DatasetIngestionError(
                 f"COCO image {image_id} has no file_name"
             )
+        try:
+            safe_dataset_path(root, image_path)
+        except SafeImageError as exc:
+            raise DatasetIngestionError(str(exc)) from exc
 
         annotations = annotations_by_image.get(image_id, [])
 
@@ -156,6 +207,9 @@ def load_yolo(
     contributor_id: str | None = None,
     batch_id: str | None = None,
     dataset_id: str | None = None,
+    require_labels: bool = False,
+    max_images: int | None = None,
+    dataset_root: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     """Load YOLO annotations into the common sample representation."""
 
@@ -174,20 +228,30 @@ def load_yolo(
 
     try:
         with open(classes_file, "r", encoding="utf-8") as file:
-            classes = [line.strip() for line in file if line.strip()]
+            raw_classes = [line.strip() for line in file]
     except OSError as exc:
         raise DatasetIngestionError(
             f"Unable to read classes file: {classes_file}"
         ) from exc
 
+    if not raw_classes or any(not name for name in raw_classes) or len(set(raw_classes)) != len(raw_classes):
+        raise DatasetIngestionError("YOLO class names must be non-empty and unique.")
+    classes = raw_classes
+    try:
+        image_files = safe_image_files(
+            images_path, dataset_root or images_path, max_images=max_images
+        )
+    except SafeImageError as exc:
+        raise DatasetIngestionError(str(exc)) from exc
+    stems: dict[str, Path] = {}
+    for image_file in image_files:
+        if image_file.stem in stems:
+            raise DatasetIngestionError(f"Duplicate image stem: {image_file.stem}")
+        stems[image_file.stem] = image_file
+    for label_file in labels_path.glob("*.txt"):
+        if label_file.stem not in stems and label_file.name != Path(classes_file).name:
+            raise DatasetIngestionError(f"Orphan YOLO label file: {label_file}")
     samples = []
-
-    image_files = sorted(
-        image_file
-        for image_file in images_path.iterdir()
-        if image_file.is_file()
-        and image_file.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
-    )
 
     for image_file in image_files:
         label_file = labels_path / f"{image_file.stem}.txt"
@@ -228,7 +292,10 @@ def load_yolo(
                         f"{label_file}:{line_number}"
                     )
 
-                if not all(0.0 <= value <= 1.0 for value in bbox):
+                x_center, y_center, width, height = bbox
+                if not (0 <= x_center <= 1 and 0 <= y_center <= 1 and width > 0 and height > 0 and
+                        x_center - width / 2 >= 0 and x_center + width / 2 <= 1 and
+                        y_center - height / 2 >= 0 and y_center + height / 2 <= 1):
                     raise DatasetIngestionError(
                         f"Invalid YOLO bounding box at "
                         f"{label_file}:{line_number}"
@@ -242,6 +309,9 @@ def load_yolo(
                         "bbox_format": "yolo",
                     }
                 )
+
+        elif require_labels:
+            raise DatasetIngestionError(f"Missing YOLO label file: {label_file}")
 
         labels = sorted(
             {annotation["class_name"] for annotation in annotations}
