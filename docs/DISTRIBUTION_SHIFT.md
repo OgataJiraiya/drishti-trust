@@ -152,3 +152,119 @@ D2 limitations include:
 D2 emits no Finding v1, ModuleRun, recommendation, severity, disposition, or Person-3
 assurance value. D3 will add separately bounded representation evidence without
 changing these D2 semantics.
+
+## D3 representation / embedding drift
+
+D3 answers whether the learned or supplied feature representation of current data
+has moved from the designated reference representation. It accepts explicit numeric
+`[samples, dimensions]` NumPy arrays; it does not read images, run a model, provide a
+default extractor, download weights, use a cloud service, or access the network. A
+caller may run any suitable local extractor outside D3 and supply its embeddings.
+
+`RepresentationSpaceDescriptor` commits extractor name and version, output dimension,
+normalization mode, and an optional caller-provided SHA-256 extractor digest into a
+`representation-space:sha256:...` identity. Without a digest the identity basis is
+`CALLER_DECLARED`; with one it is `DIGEST_DECLARED`. Neither authenticates the
+extractor or makes the space trusted. Different dimensions or space identities are
+incomparable and are never silently padded, truncated, normalized, or swapped.
+
+`RepresentationProfiler.build_reference` and `build_current` validate a numeric,
+finite, exactly two-dimensional array with positive axes. Object/string arrays,
+NaN/infinity, excessive dimension, and excessive total values fail closed. Defaults
+bound samples to 10,000, dimensions to 4,096, total values to 10,000,000, pairwise
+samples to 2,000, covariance dimensions to 512, and nearest-reference points to
+2,000. These finite limits are part of profile identity.
+
+When samples exceed the bound, rows are selected deterministically. With stable,
+unique bounded sample IDs, SHA-256-ranked IDs select the bounded subset; without IDs,
+evenly spaced row positions select it. The selected rows are then canonically ordered
+by ID and row digest. Each row is normalized to contiguous little-endian float64
+before SHA-256. Sorted `(sample_id, row_digest)` entries preserve multiplicity and
+make identities invariant to C/F memory layout and, when no selection boundary is
+crossed, row ordering. Without IDs, row order can affect which rows survive
+truncation. Duplicate rows remain repeated observations.
+
+Normalization is explicit in the space descriptor. `NONE` preserves supplied scale.
+`L2_PER_SAMPLE` divides each selected row by its L2 norm; a zero row fails closed.
+Normalization is never inferred from observed norms. Caller arrays are never mutated.
+
+The public `RepresentationProfile` records status (`COMPLETE`, `PARTIAL`, or
+`UNAVAILABLE`), counts, dimension, sample-set commitment, centroid, centroid norm,
+sample norm summary, radial-distance summary, population variance diagonal and its
+bounded summary, optional population-covariance commitment, and limitations.
+Truncation produces `PARTIAL`. Full covariance is computed only through 512
+dimensions and only its canonical-byte digest is public; above the bound it is
+explicitly unavailable. The current D3 detector compares diagonal variance, so it
+may miss covariance rotations. The profile ID commits all public evidence and
+material limits but excludes role, time, UUID, process, host, and paths.
+
+The `RepresentationWindowEvidence` bundle separates this JSON-safe public profile
+from the copied, read-only selected matrix needed by pairwise analysis. Raw embeddings
+are not returned by `profile.to_dict()`. Centroids and variance diagonals may still
+leak aggregate feature information, so profiles should be handled as potentially
+sensitive evidence.
+
+### Comparison signals and policy
+
+The immutable comparison policy has deterministic
+`representation-policy:sha256:...` identity. Default minimum support is 20 samples
+per side. Thresholds are configurable detector heuristics—not probabilities,
+scientific constants, p-values, confidence, or a global score.
+
+- `REPRESENTATION_CENTROID` computes cosine distance `1-cosine` and centroid movement
+  divided by the RMS radial scale. It shifts when both thresholds are exceeded or an
+  exact degenerate/constant-collapse change occurs. Two zero centroids yield zero;
+  one zero centroid yields `None` plus explicit degenerate evidence. Equal collapsed
+  centroids yield zero; different collapsed centroids yield no infinity.
+- `REPRESENTATION_DISPERSION` compares distances from each row to its window centroid
+  using standardized mean difference, robust quantile displacement, and symmetric
+  median change. Two exceedances or exact constant-dispersion change shift the feature.
+- `REPRESENTATION_VARIANCE` compares population variance diagonals using relative L2,
+  cosine distance, and relative total-variance change. Two exceedances or an explicit
+  collapsed-versus-dispersed change shift it.
+- `REPRESENTATION_MMD` uses the nonnegative biased RBF estimate
+  `mean(Kxx)+mean(Kyy)-2 mean(Kxy)`. Pairwise inputs are deterministically capped.
+  Default bandwidth is the median non-diagonal squared distance on the bounded union;
+  a constant union uses the recorded fixed fallback. Tiny floating negatives are
+  clamped only within tolerance; material negatives raise an error.
+- `REPRESENTATION_SUPPORT_DISTANCE` compares the median current-to-nearest-reference
+  distance with median reference-to-nearest-other-reference distance. Self diagonals
+  are excluded internally. Fewer than two references is unavailable. Zero duplicate
+  baseline support plus positive current separation is explicit shift evidence,
+  rather than an epsilon-inflated ratio.
+
+Pairwise MMD and nearest-support work are independently bounded and deterministic;
+subsampling makes the report `PARTIAL` and is recorded. Energy distance is omitted in
+D3 to avoid redundant pairwise cost. Each signal is independently `STABLE`, `SHIFTED`,
+`PARTIAL`, `UNAVAILABLE`, or `INCOMPARABLE`. Insufficient support produces only
+`PARTIAL` signals. There is no weighted or overall drift, risk, trust, health,
+representation, severity, or disposition score.
+
+The ordered profile IDs, representation space, resolved policy and bandwidth,
+feature evidence, status, and sorted limitations produce a deterministic
+`representation-comparison:sha256:...` ID; reversing unequal windows changes the
+identity. All public values are rounded to 12 decimals and serialize with strict JSON
+(`allow_nan=False`).
+
+### Claim boundary and limitations
+
+D3 representation movement does not establish model failure, poisoning, compromise,
+an adversarial attack, semantic failure, unsafe deployment, or malicious intent.
+Stable D3 metrics do not prove safety, correctness, or future reliability. Reference
+designation is not authenticity. In particular:
+
+- evidence quality depends on the caller-supplied feature space;
+- caller-declared names and digests are not automatically authenticated;
+- representation shift does not establish model-performance loss;
+- MMD sensitivity depends on kernel bandwidth;
+- bounded deterministic pairwise subsampling can lose localized evidence;
+- covariance is unavailable above its dimension bound, and diagonal variance misses
+  some rotations;
+- aggregate metrics can miss slice-specific or localized shifts;
+- D3 assesses no labels, classes, predictions, or semantic correctness;
+- D3 provides and downloads no extractor.
+
+D3 emits no Finding v1, ModuleRun, signing material, recommendation, severity, or
+Person-3 lifecycle/scoring/disposition data. D4 will separately address bounded
+prediction/output drift; multi-signal interpretation and Finding integration remain
+D5 and D6 work.
