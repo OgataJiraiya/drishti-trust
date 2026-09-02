@@ -377,3 +377,111 @@ does not assign cause.
   reliability; reference designation is not authenticity.
 - D4 does not combine D2, D3, and D4 evidence. D5 will perform separately bounded
   multi-signal interpretation; D6 remains responsible for Finding integration.
+
+## D5 reports-only multi-signal interpretation
+
+D5 is implemented on `feat/distribution-multisignal-interpretation` above frozen D4
+base `0a74d740f0724e4a4bb7ff81bc9edf4d04b9a5ef`. It answers what changed, remained
+stable, or could not be assessed across frozen D2 image/statistical, D3
+representation, and D4 prediction-output reports. `MultiSignalDriftInterpreter`
+accepts those concrete report objects or explicit `None`; it never consumes D1
+profiles, files, images, embeddings, prediction records, arrays, models, or paths.
+It neither inspects numerical metrics nor recomputes detector thresholds or states.
+
+Layers always appear as `IMAGE_STATISTICAL`, `REPRESENTATION`, then
+`PREDICTION_OUTPUT`. Source presence is `PROVIDED` or `NOT_PROVIDED`. Coverage is
+independently `COMPLETE`, `PARTIAL`, `UNAVAILABLE`, `INCOMPARABLE`, or
+`NOT_PROVIDED`; observation is independently `SHIFT_EVIDENCE_PRESENT`,
+`NO_SHIFT_OBSERVED`, or `NOT_ASSESSABLE`. Thus a partial D3 report with shifted MMD
+remains partial while preserving representation shift evidence. Partial stable-only
+features mean no shift was observed in assessed features, not that the whole layer
+is stable. Unavailable, incomparable, and absent layers are never converted to
+stable.
+
+D5 defensively requires the exact frozen report types and schema version 1, validates
+the actual comparison-ID prefixes, strict JSON safety, bounded unique feature names,
+disjoint feature partitions, and agreement between partitions and frozen feature
+states. Arbitrary dictionaries and duck-typed objects fail closed. It copies only
+bounded feature identifiers and comparison IDs—not upstream metrics, histograms,
+centroids, vectors, probability data, reasons, or free-form limitations.
+
+### Identities, source binding, and policy
+
+`MultiSignalBundle` commits the exact D2/D3/D4 comparison IDs, including explicit
+nulls, into `multisignal-bundle:sha256:...`. Bundling is caller-designated source
+association: D5 cannot prove that the reports describe the same physical sample
+windows. Deterministic comparison IDs are content identities, not signatures or
+authenticated provenance. External orchestration and D6/Person-3 integration are
+required for stronger run and audit binding.
+
+The semantic policy contains only a bounded rule version and output-size limits. It
+has deterministic `multisignal-policy:sha256:...` identity and contains no weights,
+shift/risk thresholds, probabilities, rankings, or scores. The interpretation ID
+commits schema, bundle and policy identities, ordered layer summaries, pattern,
+coverage status, deterministic text, checks, scientific boundaries, and limitations
+as `multisignal-interpretation:sha256:...`.
+
+### Pattern matrix and coverage rules
+
+For three complete layers, the eight binary combinations map exactly to:
+
+| D2 | D3 | D4 | Pattern |
+|---:|---:|---:|---|
+| 0 | 0 | 0 | `NO_OBSERVED_SHIFT_ALL_LAYERS` |
+| 1 | 0 | 0 | `IMAGE_STATISTICAL_SHIFT_ONLY` |
+| 0 | 1 | 0 | `REPRESENTATION_SHIFT_ONLY` |
+| 0 | 0 | 1 | `PREDICTION_OUTPUT_SHIFT_ONLY` |
+| 1 | 1 | 0 | `IMAGE_STATISTICAL_AND_REPRESENTATION_SHIFT` |
+| 1 | 0 | 1 | `IMAGE_STATISTICAL_AND_OUTPUT_SHIFT` |
+| 0 | 1 | 1 | `REPRESENTATION_AND_OUTPUT_SHIFT` |
+| 1 | 1 | 1 | `BROAD_MULTILAYER_SHIFT` |
+
+Here `1` means at least one frozen upstream feature is shifted; `0` means complete
+coverage with no shifted feature and at least one stable feature. An `_ONLY` pattern
+is impossible unless both other layers are complete and show no shift. With
+incomplete coverage, observed change normally becomes
+`SHIFT_WITH_INCOMPLETE_COVERAGE`; no observed change becomes
+`NO_SHIFT_OBSERVED_IN_ASSESSED_EVIDENCE`; no usable stable/shifted evidence becomes
+`NO_USABLE_EVIDENCE`. Shift in all three layers remains `BROAD_MULTILAYER_SHIFT` even
+if coverage is partial, while report status retains partial coverage.
+
+Interpretation status describes coverage only: `COMPLETE` requires all three complete
+reports, `PARTIAL` requires some usable evidence with at least one incomplete layer,
+and `UNAVAILABLE` means no usable stable/shifted feature conclusion. Complete never
+means safe, trusted, or accepted. `changed_layers` includes complete or partial shift
+evidence; `stable_layers` requires complete coverage; `incomplete_layers` and
+`not_assessable_layers` remain explicit.
+
+### Analyst output and scientific boundary
+
+Fixed templates produce bounded summaries, per-layer observations, and analyst
+checks in deterministic order. Checks identify changed feature IDs, identity/runtime
+configuration to verify, incomplete evidence to acquire, source-context binding, and
+slice-specific behavior. They are checks—not recommendations or dispositions. Fixed
+unsupported-conclusion codes state that cause, malicious intent, model performance,
+calibration, deployment safety, reference authenticity, and common cause are not
+established.
+
+Pattern codes describe which observable layers changed, never why. Image/statistical
+change does not prove sensor or environmental cause. Representation change does not
+prove a hidden attack or degradation. Output change does not prove wrong predictions
+or reduced accuracy. Non-adjacent D2+D4 change with stable measured D3 evidence is not
+a contradiction; the supplied representation space may be insensitive to changed
+factors. Broad multi-layer shift does not establish a common cause, compromise,
+poisoning, malicious activity, model failure, accuracy/calibration degradation, or
+unsafe deployment. Fully stable evidence does not establish correctness, safety, or
+future reliability. A designated reference is not authenticated, trusted, or safe.
+
+D5 is deterministic in-memory rule logic. It uses no filesystem, NumPy, network,
+model framework, LLM, learned classifier, cryptography, backend scoring, signing,
+audit, Finding, severity, recommendation, or disposition integration. Public reports
+contain no time, UUID, machine identity, or raw evidence and pass strict JSON with
+`allow_nan=False`.
+
+Remaining limitations include dependence on correct upstream reports, unauthenticated
+source IDs and caller-designated association, inability to prove shared physical
+windows, aggregate evidence missing slices, incomplete layers preventing full
+stability conclusions, and no re-evaluation of detector thresholds. D5 estimates
+neither performance nor calibration and establishes neither reference authenticity
+nor common cause. D6 will perform signed Person-3/Finding integration; D5 emits no
+Finding v1 or backend disposition.
