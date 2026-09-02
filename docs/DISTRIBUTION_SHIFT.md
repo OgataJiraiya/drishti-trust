@@ -485,3 +485,112 @@ stability conclusions, and no re-evaluation of detector thresholds. D5 estimates
 neither performance nor calibration and establishes neither reference authenticity
 nor common cause. D6 will perform signed Person-3/Finding integration; D5 emits no
 Finding v1 or backend disposition.
+
+## D6 final frozen-Finding and signed integration
+
+D6 is implemented on `feat/distribution-final-integration` above frozen D5 base
+`a1677c22dd8d3ead5e927b575f5ea096187b99e9`. D1–D5 remain frozen. D6 is a thin mapper
+and integration layer: exact D5 reports map through the existing SDK
+`DistributionShiftAdapter`, and `DistributionShiftRunBuilder` delegates run identity,
+`ModuleRunSubmission`, Ed25519 signing, and authenticated submission to the existing
+`DrishtiClient`. It creates no backend, schema, signer, score, disposition, audit
+chain, lifecycle, producer registry, key registry, or checkpoint format.
+
+Frozen Finding v1 remains exactly `finding_id`, `module`, `asset_type`, `asset_id`,
+`category`, `severity`, `confidence`, `reason`, `evidence`, `recommendation`, and
+`limitations`. D6 always uses module `distribution_shift`, asset type
+`distribution_context`, and the D5 bundle ID as asset ID. The bundle commits the exact
+source comparison identities but does not prove that reports describe the same
+physical windows. `DistributionShiftAdapter.finding()` and its stable evidence key
+derive deterministic `F-SHIFT-...` IDs; no timestamp or randomness enters Finding
+identity.
+
+### Mapping policy v1
+
+`DISTRIBUTION_SHIFT_MAPPING_POLICY_V1` emits at most one Finding per interpretation,
+preventing correlated D2/D3/D4 observations from accumulating multiple backend
+penalties for one interpreted context. Detailed changed layers, bounded shifted
+feature identifiers, interpretation/bundle/pattern/status, layer coverage, and source
+comparison IDs remain ordered `list[str]` evidence. Evidence is capped at 20 strings
+and limitations at 10; truncation is explicit.
+
+- Complete `NO_OBSERVED_SHIFT_ALL_LAYERS` maps to zero Findings—never a fake safe,
+  pass, completion, INFO, or ACCEPT Finding.
+- Complete single-layer patterns retain their category with `MEDIUM`, confidence
+  `0.90`, and `REVIEW`.
+- Complete two-layer patterns and `BROAD_MULTILAYER_SHIFT` retain their category with
+  `HIGH`, confidence `0.90`, and `REVIEW`.
+- `SHIFT_WITH_INCOMPLETE_COVERAGE` becomes
+  `DISTRIBUTION_SHIFT_WITH_INCOMPLETE_COVERAGE`; one changed layer is `MEDIUM`, two or
+  three are `HIGH`, with confidence `0.90` and `REVIEW`.
+- `NO_SHIFT_OBSERVED_IN_ASSESSED_EVIDENCE` becomes the `LOW`, confidence `1.00`,
+  `REVIEW` coverage Finding `DISTRIBUTION_SHIFT_EVIDENCE_INCOMPLETE`.
+- `NO_USABLE_EVIDENCE` becomes the `MEDIUM`, confidence `1.00`, `REVIEW`
+  assessability Finding `DISTRIBUTION_SHIFT_EVIDENCE_UNAVAILABLE`.
+
+Confidence `0.90` is fixed observation-mapping confidence, not attack, error,
+maliciousness, or safety probability. Confidence `1.00` states that the structural
+coverage gap exists. Severity describes changed-layer scope or assessability attention,
+not maliciousness. Every emitted D6 Finding recommends `REVIEW`; none recommends
+`ACCEPT`, `QUARANTINE`, or `REJECT`, and none uses `CRITICAL`. Finding recommendation
+is not Person-3 backend disposition.
+
+Every Finding states that distribution shift does not establish cause, malicious
+intent, performance/calibration degradation, or deployment unsafety; deterministic
+source IDs are not authenticated provenance; the designated reference is not thereby
+authentic, approved, or safe; and caller-designated D5 association is not physical
+window proof. Signing authenticates producer, key, and submitted payload—not sensor,
+embedding, prediction, reference, or physical-world truth.
+
+### Frozen run limitation and existing backend ownership
+
+Frozen `ModuleRunSubmission` requires at least one Finding. Therefore a complete clean
+interpretation produces `[]` and cannot represent a signed clean module completion.
+`DistributionShiftRunBuilder.build_run()` rejects empty findings with that exact
+limitation. D6 does not weaken the schema, manufacture a clean Finding, call a private
+endpoint, or introduce a second completion protocol. Backend Distribution Shift
+coverage consequently remains unknown for a purely clean zero-Finding result under
+v1.
+
+For non-clean evidence the builder enforces module and bundle asset binding, then
+delegates to the SDK. The existing backend owns producer/key authentication, DRAFT /
+ACTIVE / SEALED lifecycle, replay (`CREATED` then `EXISTS`), stored authentication,
+assurance scoring, module/system disposition, coverage, audit verification, snapshot,
+outbox, and checkpoint. A Distribution Shift-only assessment normally has partial
+whole-system coverage; D6 reports backend-returned values and never recomputes them.
+
+### Final runtime-generated demo
+
+`DistributionShiftFinalOrchestrator` creates temporary deterministic image windows,
+caller-supplied synthetic embeddings, and caller-supplied prediction records, then
+runs the real frozen D1–D5 APIs and D6 mapper. No specimen, image, embedding,
+prediction matrix, key, token, or benchmark artifact is retained. Scenarios are
+`clean`, `image-shift`, `representation-shift`, `output-shift`, `broad-shift`, and
+`incomplete`. Offline is the default and performs no network operation:
+
+```text
+python scripts/demo_distribution_shift_final.py --scenario clean
+python scripts/demo_distribution_shift_final.py --scenario broad-shift
+```
+
+Signed mode uses only an explicitly running loopback backend and the existing SDK:
+
+```text
+DRISHTI_ADMIN_BEARER_TOKEN=... python scripts/demo_distribution_shift_final.py \
+  --scenario broad-shift --signed --assessment-id DRIFT-D6-DEMO
+```
+
+Clean `--signed` returns `NO_FINDINGS_TO_SUBMIT` without requiring a token or making a
+backend call. Shifted signed mode generates an Ed25519 private key only in memory,
+registers its public key, activates the assessment, submits and replays the signed
+run, fetches persisted authentication and backend summary, verifies audit, seals and
+verifies snapshot, drains outbox, and creates/verifies a checkpoint. No backend is
+started automatically and no cloud or internet service is contacted.
+
+Remaining limitations include the zero-Finding run gap, unauthenticated underlying
+observations before external binding, caller-designated source association, signatures
+not proving physical truth, detector heuristics, aggregate slice blindness, supplied
+D3 representation quality, D4 classification-only scope, partial whole-system
+coverage in a Distribution Shift-only run, and production checkpoints benefiting from
+external anchoring, HSM protection, or trusted timestamps. D6 changes none of
+Person-3 scoring or disposition policy. Distribution Shift ends at D6; there is no D7.
