@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from time import perf_counter
 
 import httpx
 from PIL import Image
@@ -90,6 +91,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run the deterministic offline full-system demo")
     parser.add_argument("--scenario", choices=("clean", "concern"), default="concern")
     args = parser.parse_args()
+    total_started = perf_counter()
     with tempfile.TemporaryDirectory(prefix="drishti-full-system-") as directory:
         root = Path(directory)
         port = _free_port()
@@ -104,23 +106,31 @@ def main() -> int:
             with DrishtiClient(f"http://127.0.0.1:{port}", admin_token=token) as client:
                 _wait(client)
                 assessment_id = f"FULL-{args.scenario.upper()}"
+                detector_started = perf_counter()
+                findings = _module_findings(client, root, args.scenario == "concern")
+                detector_seconds = perf_counter() - detector_started
+                backend_started = perf_counter()
                 result = FullAssessmentOrchestrator(client).run(
-                    assessment_id, _module_findings(client, root, args.scenario == "concern"))
-                print(f"Assessment: {assessment_id}")
+                    assessment_id, findings)
+                backend_seconds = perf_counter() - backend_started
+                print(f"Assessment: {assessment_id} ({args.scenario})")
+                print("Assessment lifecycle: DRAFT -> ACTIVE -> SEALED")
                 for module, details in result.runs.items():
                     stored = details["stored"]
                     print(f"  {module}: findings={stored['total_findings']} authenticated="
                           f"{stored['authentication']['authenticated']}")
                 overall = result.summary["overall"]
-                print(f"Coverage: {overall['assessment_coverage']}")
-                print(f"System assurance: {overall['assurance_score']} ({overall['score_status']})")
-                print(f"System disposition: {overall['disposition']}")
+                print(f"Backend coverage: {overall['assessment_coverage']}")
+                print(f"Backend assurance: {overall['assurance_score']} ({overall['score_status']})")
+                print(f"Backend disposition: {overall['disposition']}")
                 print(f"Audit: {result.audit['status']}")
                 print(f"Lifecycle: {result.lifecycle}")
                 print(f"Snapshot: {result.snapshot['status']}")
                 print(f"Checkpoint: {result.checkpoint['status']}")
                 print("Security: " + ", ".join(
                     f"{name}={status}" for name, status in sorted(result.security.items())))
+                print(f"Timing: detectors={detector_seconds:.3f}s, backend={backend_seconds:.3f}s, "
+                      f"total={perf_counter() - total_started:.3f}s")
         finally:
             server.terminate()
             try:

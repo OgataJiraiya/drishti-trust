@@ -11,10 +11,11 @@ From the repository root, install dependencies once and invoke Uvicorn as a Pyth
 module. Administrative credentials are runtime-only and have no source-code default:
 
 ```bash
-cd /home/kali/drishti-trust
-python -m pip install -r backend/requirements.txt
+cd drishti-trust
+python -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements.txt
 export DRISHTI_ADMIN_BEARER_TOKEN="replace-with-runtime-secret"
-python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+.venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
 The API is `http://127.0.0.1:8000`; Swagger is at `/docs` and health at `/health`.
