@@ -219,7 +219,7 @@ class ModelIntegrityFinalOrchestrator:
         limitations = list(comparison.limitations)
         if not findings:
             limitations += ["No mapped anomaly Findings were produced.",
-                "Frozen ModuleRun v1 cannot submit an authenticated zero-Finding clean-completion run; backend module coverage therefore remains unknown/unrepresented for this clean scenario."]
+                "Authenticated zero-Finding completion remains UNKNOWN and does not establish safety."]
         else: limitations.append("A model difference does not establish malicious intent.")
         return ModelIntegrityScenarioResult(scenario.scenario_id, scenario.name,
             comparison.reference_artifact_id, comparison.candidate_artifact_id,
@@ -231,7 +231,7 @@ class ModelIntegrityFinalOrchestrator:
             behavior.status.value if behavior else "NOT_ASSESSED",
             tuple(item.finding_id for item in findings), tuple(item.category for item in findings),
             tuple(sorted({item.recommendation.value for item in findings})),
-            "NOT_SUBMITTED_ZERO_FINDINGS" if not findings else "OFFLINE_NOT_SUBMITTED",
+            "OFFLINE_NOT_SUBMITTED",
             "UNKNOWN", "UNKNOWN", comparison.interpretation, tuple(sorted(set(limitations))))
 
     @staticmethod
@@ -250,8 +250,6 @@ class ModelIntegrityFinalOrchestrator:
                              producer: str, key_id: str, private_key: Any
                              ) -> ModelIntegrityScenarioResult:
         """Use the frozen M5/SDK signing pipeline; clean results are never fabricated."""
-        if not findings:
-            return replace(result, backend_submission_status="NOT_SUBMITTED_ZERO_FINDINGS")
         if any(item.asset_id != result.candidate_artifact_id for item in findings):
             raise ValueError("candidate artifact identity must match every mapped Finding")
         run = builder.build_run(assessment_id=assessment_id, producer=producer,

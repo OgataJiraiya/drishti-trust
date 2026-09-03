@@ -46,8 +46,8 @@ def test_clean_exact_equality_no_fake_finding_and_limitation(tmp_path):
     assert (result.artifact_state, result.structural_state, result.parameter_metadata_state,
             result.parameter_value_state) == ("SAME", "SAME", "SAME", "SAME")
     assert result.finding_count == 0 and "MODEL_SAFE" not in result.finding_categories
-    assert result.backend_submission_status == "NOT_SUBMITTED_ZERO_FINDINGS"
-    assert any("cannot submit" in item for item in result.limitations)
+    assert result.backend_submission_status == "OFFLINE_NOT_SUBMITTED"
+    assert any("remains UNKNOWN" in item for item in result.limitations)
 
 
 def test_weight_change_preserves_structure_and_names_tensor(tmp_path):

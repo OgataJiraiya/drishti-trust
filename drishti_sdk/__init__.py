@@ -5,6 +5,7 @@ from .adapters import (
     InferenceIntegrityAdapter, ModelIntegrityAdapter,
 )
 from .client import DrishtiClient
+from .orchestration import FullAssessmentOrchestrator, FullAssessmentResult
 from .errors import (
     AssessmentStateError, AuthenticationError, ConflictError,
     DrishtiError, ValidationError,
@@ -16,4 +17,5 @@ __all__ = [
     "ValidationError", "AssessmentStateError", "deterministic_finding_id",
     "DatasetIntegrityAdapter", "ModelIntegrityAdapter",
     "InferenceIntegrityAdapter", "DistributionShiftAdapter",
+    "FullAssessmentOrchestrator", "FullAssessmentResult",
 ]

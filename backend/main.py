@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api import (
     assessments,
@@ -80,6 +81,12 @@ def create_app(settings: Settings = default_settings) -> FastAPI:
         version="0.1.0",
         description="SHA-256 and Ed25519 signed receipts for computer-vision inference integrity.",
         lifespan=lifespan,
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"^http://(127\.0\.0\.1|localhost)(:\d+)?$",
+        allow_methods=["GET"],
+        allow_headers=["Accept"],
     )
     app.state.engine = engine
     app.state.settings = settings

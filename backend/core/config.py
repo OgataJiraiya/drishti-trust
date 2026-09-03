@@ -25,6 +25,8 @@ class Settings:
 
 def _environment_settings() -> Settings:
     return Settings(
+        data_dir=Path(os.environ["DRISHTI_DATA_DIR"]) if os.getenv("DRISHTI_DATA_DIR") else Settings.data_dir,
+        key_dir=Path(os.environ["DRISHTI_KEY_DIR"]) if os.getenv("DRISHTI_KEY_DIR") else Settings.key_dir,
         admin_bearer_token=os.getenv("DRISHTI_ADMIN_BEARER_TOKEN") or None,
         internal_ingest_bearer_token=os.getenv("DRISHTI_INTERNAL_INGEST_BEARER_TOKEN") or None,
         allow_unsigned_ingestion=os.getenv(

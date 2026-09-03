@@ -61,7 +61,7 @@ class DistributionShiftFinalOrchestrator:
         d2,d3,d4,d5=build_interpretation_for_scenario(scenario)
         local_client=self.client or DrishtiClient();mapper=DistributionShiftFindingMapper(DistributionShiftAdapter(local_client));findings=mapper.map(d5)
         if self.client is None:local_client.close()
-        limitations=("Frozen ModuleRunSubmission v1 cannot represent a clean zero-Finding completion.",) if not findings else ("Signed payload authentication does not prove physical-world observation truth.",)
+        limitations=("Authenticated zero-Finding completion remains UNKNOWN and does not establish safety.",) if not findings else ("Signed payload authentication does not prove physical-world observation truth.",)
         core={"schema_version":1,"scenario_id":scenario,"d2_comparison_id":d2.comparison_id,"d3_comparison_id":d3.comparison_id,"d4_comparison_id":d4.comparison_id,"interpretation_id":d5.interpretation_id,"bundle_id":d5.bundle_id,"finding_ids":tuple(f.finding_id for f in findings)}
         report_id="distribution-demo:sha256:"+sha256(canonical_json_bytes(core)).hexdigest()
         result=DistributionShiftFinalResult(1,report_id,scenario,scenario.replace("-"," ").title(),d2.status.value,d2.shifted_features,d3.status.value,d3.shifted_features,d4.status.value,d4.shifted_features,d5.status.value,d5.pattern_code.value,d5.changed_layers,d5.interpretation_id,d5.bundle_id,len(findings),tuple(f.finding_id for f in findings),tuple(f.category for f in findings),tuple(f.severity.value for f in findings),tuple(f.recommendation.value for f in findings),"NOT_REQUESTED",limitations)

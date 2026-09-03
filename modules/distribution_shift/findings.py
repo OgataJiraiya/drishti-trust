@@ -37,7 +37,7 @@ def mapping_policy_inventory():
     rows=[]
     for pattern,m in _M.items():rows.append({"source_pattern":pattern.value,"category":m.category,"severity":m.severity,"confidence":m.confidence,"recommendation":"REVIEW","rationale":m.rationale,"limitation":"Observational distribution evidence does not establish cause or model performance."})
     rows.append({"source_pattern":InterpretationPattern.SHIFT_WITH_INCOMPLETE_COVERAGE.value,"category":"DISTRIBUTION_SHIFT_WITH_INCOMPLETE_COVERAGE","severity":"MEDIUM_OR_HIGH_BY_CHANGED_LAYER_COUNT","confidence":.90,"recommendation":"REVIEW","rationale":"Observed shift is retained while incomplete coverage is explicit.","limitation":"Unassessed layers prevent a full stability conclusion."})
-    rows.append({"source_pattern":InterpretationPattern.NO_OBSERVED_SHIFT_ALL_LAYERS.value,"category":None,"severity":None,"confidence":None,"recommendation":None,"rationale":"Clean complete evidence maps to zero Findings.","limitation":"Frozen ModuleRun v1 cannot represent zero-Finding completion."})
+    rows.append({"source_pattern":InterpretationPattern.NO_OBSERVED_SHIFT_ALL_LAYERS.value,"category":None,"severity":None,"confidence":None,"recommendation":None,"rationale":"Clean complete evidence maps to zero Findings.","limitation":"Authenticated zero-Finding completion remains UNKNOWN and does not establish safety."})
     return tuple(rows)
 
 class DistributionShiftFindingMapper:
