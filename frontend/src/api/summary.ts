@@ -1,0 +1,4 @@
+import {getJson,isRecord} from './client';import type{AssuranceSummary,ModuleKey}from'./types';
+const keys:ModuleKey[]=['dataset_integrity','model_integrity','inference_integrity','distribution_shift'];
+export function isSummary(v:unknown):v is AssuranceSummary{if(!isRecord(v)||!isRecord(v.modules))return false;const modules=v.modules;return typeof v.generated_at==='string'&&isRecord(v.overall)&&typeof v.overall.assessment_coverage==='number'&&keys.every(k=>isRecord(modules[k]))&&isRecord(v.audit_integrity)&&Array.isArray(v.latest_findings)&&Array.isArray(v.limitations)&&isRecord(v.finding_counts)&&typeof v.trusted_finding_count==='number'&&typeof v.excluded_untrusted_finding_count==='number'}
+export const fetchSummary=(assessmentId?:string)=>getJson(`/api/summary?trust_scope=authenticated${assessmentId?`&assessment_id=${encodeURIComponent(assessmentId)}`:''}`,isSummary);

@@ -1,0 +1,15 @@
+import { ChevronDown } from 'lucide-react';
+import type { AssuranceSummary, Finding } from '../api/types';
+import { StatusBadge } from '../components/ui';
+
+export function DistributionPage({ summary, findings, demo }: { summary: AssuranceSummary; findings: Finding[]; demo: boolean }) {
+  const module = summary.modules.distribution_shift;
+  const finding = findings.find((item) => item.module === 'distribution_shift');
+  return <div className="reference-page distribution-page">
+    <header className="reference-page-header"><div><span>DISTRIBUTION SHIFT</span><h1>DRIFT</h1><p>Reference vs Current</p></div></header>
+    <div className="drift-reference-summary"><section><span>SHIFT STATE</span><strong>{module.availability === 'ASSESSED' ? 'OBSERVED' : 'UNAVAILABLE'}</strong><small>{module.status}</small></section><section><span>INTERPRETATION</span><strong>{demo ? 'BROAD MULTILAYER SHIFT' : module.disposition.replaceAll('_', ' ')}</strong><p>{demo ? 'Shift evidence is present across image, representation, and prediction-output layers.' : module.top_findings[0]?.reason ?? 'Backend module assurance is available; detailed detector evidence is unavailable.'}</p></section></div>
+    <div className="drift-analysis-reference"><section className="drift-chart"><div className="chart-title"><span>REFERENCE VS CURRENT</span><div><i />REFERENCE <i />CURRENT</div></div>{demo ? <><svg viewBox="0 0 640 230" role="img" aria-label="Demo reference and current brightness distributions"><g className="grid"><path d="M35 25V205H620M35 160H620M35 115H620M35 70H620" /></g><path className="curve reference" d="M35 193 C100 185,120 90,195 72 S300 145,365 115 S455 34,620 181" /><path className="curve current" d="M35 198 C105 192,150 145,225 126 S330 67,415 88 S520 152,620 188" /></svg><div className="chart-axis"><span>LOW</span><span>BRIGHTNESS DISTRIBUTION</span><span>HIGH</span></div></> : <div className="live-unavailable"><strong>—</strong><span>Detailed detector evidence unavailable in live mode.</span></div>}</section><aside className="deviation-panel"><span>FEATURE DEVIATIONS</span>{['BRIGHTNESS', 'COLOR', 'BLUR'].map((label, index) => <div key={label}><span>{label}</span><strong>{demo ? ['−12%', '+3%', '+18%'][index] : '—'}</strong><small>{demo ? 'DEMO COMPARISON' : 'UNAVAILABLE'}</small></div>)}</aside></div>
+    <section className="drift-recommendation"><div><span>RECOMMENDATION</span><p>{finding?.reason ?? 'No Distribution Shift finding is available in this assessment context.'}</p></div><StatusBadge value={finding?.recommendation ?? module.disposition} /></section>
+    <details className="reference-limitations"><summary><span>LIMITATIONS</span><ChevronDown /></summary><p>Shift evidence does not establish common cause, malicious intent, performance degradation, or deployment unsafety.</p><div className="detector-index"><span role="tab">D2 · IMAGE</span><span role="tab">D3 · REPRESENTATION</span><span role="tab">D4 · OUTPUT</span><span>D5 Multi-signal interpretation</span></div></details>
+  </div>;
+}

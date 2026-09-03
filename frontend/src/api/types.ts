@@ -1,0 +1,17 @@
+export type ModuleKey='dataset_integrity'|'model_integrity'|'inference_integrity'|'distribution_shift';
+export type Severity='INFO'|'LOW'|'MEDIUM'|'HIGH'|'CRITICAL';
+export type Recommendation='ACCEPT'|'REVIEW'|'QUARANTINE'|'REJECT';
+export type AssuranceStatus='GOOD'|'WATCH'|'REVIEW'|'HIGH_RISK'|'UNKNOWN';
+export interface Finding{finding_id:string;module:ModuleKey;asset_type:string;asset_id:string;category:string;severity:Severity;confidence:number;reason:string;evidence:string[];recommendation:Recommendation;limitations:string[]}
+export interface SeverityCounts{INFO:number;LOW:number;MEDIUM:number;HIGH:number;CRITICAL:number}
+export interface ModuleAssurance{display_name:string;availability:'ASSESSED'|'UNKNOWN';availability_reason:string;assurance_score:number|null;status:AssuranceStatus;disposition:Recommendation;finding_count:number;severity_counts:SeverityCounts;recommendation_counts:Record<Recommendation,number>;category_counts:Record<string,number>;top_findings:Finding[];score_explanation:null|{starting_score:number;category_penalties:unknown[];total_penalty:number;formula:string}}
+export interface AssuranceSummary{assessment_id:string|null;assessment_status:'DRAFT'|'ACTIVE'|'SEALED'|null;scope_mode:'EXPLICIT_ASSESSMENT'|'ACTIVE_ASSESSMENT'|'GLOBAL_LEGACY';trust_scope:'authenticated'|'all';trusted_finding_count:number;excluded_untrusted_finding_count:number;generated_at:string;overall:{assurance_score:number|null;score_status:'UNAVAILABLE'|'PROVISIONAL'|'COMPLETE';assessment_coverage:number;disposition:Recommendation;reason:string;critical_overrides:string[];most_concerning_module:ModuleKey|null;critical_override_details:unknown[]};modules:Record<ModuleKey,ModuleAssurance>;audit_integrity:{status:'VALID'|'COMPROMISED'|'UNAVAILABLE';records_checked:number|null;first_broken_audit_id:string|null};latest_findings:Finding[];finding_counts:SeverityCounts&{total:number};recommendation_counts:Record<Recommendation,number>;limitations:string[]}
+export interface Assessment{assessment_id:string;name:string;description:string|null;status:'DRAFT'|'ACTIVE'|'SEALED';metadata:Record<string,unknown>;created_at:string;activated_at:string|null;sealed_at:string|null}
+export interface AssessmentList{total:number;limit:number;offset:number;items:Assessment[]}
+export interface Health{status:'ok'|'degraded';service:string;offline:string;audit_outbox_pending:number;audit_outbox_healthy:boolean;audit_chain_valid:boolean}
+export interface EvidenceList{total:number;page:number;page_size:number;items:Finding[]}
+export interface ModuleRun{run_id:string;assessment_id:string|null;module:ModuleKey;producer:string;producer_version:string|null;request_hash:string;total_findings:number;created_findings:number;existing_findings:number;finding_ids:string[];created_at:string;authentication:{authenticated:boolean;mode:'ED25519'|'TRUSTED_INTERNAL';producer_id:string;key_id:string|null;key_fingerprint:string|null;request_hash:string;authenticated_at:string}}
+export interface RunList{total:number;limit:number;offset:number;items:ModuleRun[]}
+export interface Snapshot{assessment_id:string;schema_version:'1';payload:Record<string,unknown>;summary_hash:string;run_set_hash:string;run_count:number;trusted_finding_count:number;excluded_untrusted_finding_count:number;created_at:string}
+export interface SnapshotVerification{assessment_id:string;status:'VALID'|'INVALID';stored_summary_hash:string;recomputed_summary_hash:string;stored_run_set_hash:string;recomputed_run_set_hash:string}
+export type BackendState='ONLINE'|'DEGRADED'|'OFFLINE';
