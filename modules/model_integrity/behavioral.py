@@ -108,7 +108,7 @@ class ReferenceOnnxRuntime:
 
     def __init__(self, *, max_output_tensors: int = 16, max_output_elements: int = 4_000_000,
                  max_output_bytes: int = 64 * 1024 * 1024,
-                 max_address_space_bytes: int = 1024 * 1024 * 1024) -> None:
+                 max_address_space_bytes: int = 2 * 1024 * 1024 * 1024) -> None:
         self.max_output_tensors = max_output_tensors
         self.max_output_elements = max_output_elements
         self.max_output_bytes = max_output_bytes
