@@ -31,7 +31,7 @@ class BehavioralLimits:
     max_output_tensors: int = 16
     max_output_elements_per_run: int = 4_000_000
     max_output_bytes_per_run: int = 64 * 1024 * 1024
-    max_worker_address_space_bytes: int = 1024 * 1024 * 1024
+    max_worker_address_space_bytes: int = 2 * 1024 * 1024 * 1024
     runtime_timeout_seconds: float = 10.0
     repeatability_runs: int = 2
     max_behavior_issues: int = 200
