@@ -1,6 +1,6 @@
 from typing import Any
 
-import imagehash
+import numpy as np
 from PIL import Image
 
 from .bounds import (
@@ -18,7 +18,15 @@ def calculate_phash(file_path: str) -> str:
     """Calculate the perceptual hash of an image."""
 
     with Image.open(file_path) as image:
-        return str(imagehash.phash(image))
+        pixels = np.asarray(image.convert("L").resize((32, 32), Image.Resampling.LANCZOS),
+                            dtype=np.float64)
+    coordinates = np.arange(32, dtype=np.float64)
+    frequencies = np.arange(8, dtype=np.float64)[:, None]
+    basis = np.cos((np.pi / 32) * (coordinates + 0.5) * frequencies)
+    coefficients = basis @ pixels @ basis.T
+    values = coefficients[:8, :8].ravel()
+    bits = values > np.median(values[1:])
+    return f"{sum(int(bit) << (63 - index) for index, bit in enumerate(bits)):016x}"
 
 
 def phash_distance(hash_a: str, hash_b: str) -> int:
@@ -154,7 +162,6 @@ def create_near_duplicate_findings(
                     "Similarity heuristic; visually similar legitimate "
                     "images may be flagged."
                 ],
-                "truncated": asset_truncated or match_truncated or evidence_truncated,
             }
         )
 

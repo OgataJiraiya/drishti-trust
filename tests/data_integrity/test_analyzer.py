@@ -31,9 +31,8 @@ def test_unified_analysis_runs_all_detectors(monkeypatch, tmp_path):
     assert result["finding_count"] == 3
     assert result["findings_by_category"] == {"EXACT_DUPLICATE": 1, "LABEL_ANOMALY": 1, "OOD_OUTLIER": 1}
     assert result["ood_calibration"]["threshold"] == 0.3
-    assert result["detector_risk_summary"]["kind"] == "DETECTOR_LOCAL_HEURISTIC"
-    assert result["detector_risk_summary"]["authoritative"] is False
-    assert all(finding["finding_id"].startswith("F-DATA-") for finding in result["findings"])
+    assert "detector_risk_summary" not in result
+    assert all(finding["finding_id"].startswith("F-DATASET-") for finding in result["findings"])
 
 
 @pytest.mark.parametrize(
@@ -90,3 +89,5 @@ def test_risk_summary_uses_real_contributor_metadata(monkeypatch, tmp_path):
     result = analyze_dataset(str(dataset))
 
     assert result["risk_summary"] == [{"contributor_id": "source-a", "finding_count": 1, "average_confidence": 1.0, "affected_batches": ["batch-1"]}]
+    assert "contributor_id=source-a" in result["findings"][0]["evidence"]
+    assert "batch_id=batch-1" in result["findings"][0]["evidence"]

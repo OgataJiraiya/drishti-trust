@@ -60,7 +60,7 @@ def test_create_near_duplicate_finding():
 
     finding = findings[0]
 
-    assert finding["finding_id"].startswith("F-DATA-")
+    assert finding["finding_id"].startswith("F-DATASET-")
     assert finding["module"] == "dataset_integrity"
     assert finding["asset_type"] == "sample"
     assert finding["asset_id"] == "images/a.jpg"

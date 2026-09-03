@@ -86,6 +86,19 @@ class AssessmentMembershipRepository:
             query = query.where(ModuleRunAuthenticationRecord.authentication_mode == authentication_mode)
         return {finding_id for encoded in self.session.scalars(query) for finding_id in json.loads(encoded)}
 
+    def authenticated_modules(self, assessment_id: str) -> set[str]:
+        query = (select(ModuleRunRecord.module)
+                 .join(AssessmentRunMembershipRecord,
+                       AssessmentRunMembershipRecord.run_id == ModuleRunRecord.run_id)
+                 .join(ModuleRunAuthenticationRecord,
+                       ModuleRunAuthenticationRecord.run_id == ModuleRunRecord.run_id)
+                 .where(
+                     AssessmentRunMembershipRecord.assessment_id == assessment_id,
+                     ModuleRunAuthenticationRecord.authentication_mode == "ED25519",
+                     ModuleRunAuthenticationRecord.request_hash == ModuleRunRecord.request_hash,
+                 ))
+        return set(self.session.scalars(query))
+
 
 class AssessmentSnapshotRepository:
     def __init__(self, session: Session) -> None:
@@ -301,6 +314,17 @@ class ModuleRunAuthenticationRepository:
             )
         ).scalars()
         return {finding_id for encoded in runs for finding_id in json.loads(encoded)}
+
+    def authenticated_modules(self) -> set[str]:
+        return set(self.session.scalars(
+            select(ModuleRunRecord.module)
+            .join(ModuleRunAuthenticationRecord,
+                  ModuleRunAuthenticationRecord.run_id == ModuleRunRecord.run_id)
+            .where(
+                ModuleRunAuthenticationRecord.authentication_mode == "ED25519",
+                ModuleRunAuthenticationRecord.request_hash == ModuleRunRecord.request_hash,
+            )
+        ))
 
 
 class ProducerRepository:

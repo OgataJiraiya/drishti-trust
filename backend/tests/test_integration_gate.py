@@ -51,7 +51,6 @@ async def test_valid_run_schema_is_accepted(client):
         lambda body: body.update({"run_id": "   "}),
         lambda body: body.update({"producer": "   "}),
         lambda body: body.update({"producer_version": "   "}),
-        lambda body: body.update({"findings": []}),
         lambda body: body.update({"module": "dataset_integrty"}),
         lambda body: body["findings"][0].update({"severity": "SEVERE"}),
         lambda body: body["findings"][0].update({"recommendation": "ALLOW"}),
@@ -67,6 +66,16 @@ async def test_invalid_outer_or_finding_schema_fails_before_mutation(client, app
     assert response.status_code == 422
     with app.state.session_factory() as session:
         assert session.scalar(select(func.count()).select_from(ModuleRunRecord)) == 0
+        assert session.scalar(select(func.count()).select_from(FindingRecord)) == 0
+
+
+@pytest.mark.anyio
+async def test_zero_finding_internal_completion_is_recorded_without_fake_evidence(client, app):
+    body = run_submission(run_id="RUN-DATA-EMPTY", findings=[])
+    response = await client.post("/api/integration/runs", json=body)
+    assert response.status_code == 200 and response.json()["total_findings"] == 0
+    with app.state.session_factory() as session:
+        assert session.scalar(select(func.count()).select_from(ModuleRunRecord)) == 1
         assert session.scalar(select(func.count()).select_from(FindingRecord)) == 0
 
 

@@ -86,7 +86,6 @@ def create_label_anomaly_findings(
                     "Rare labels may be legitimate and are not "
                     "evidence of poisoning by themselves."
                 ],
-                "truncated": asset_truncated or evidence_truncated,
             }
         )
 

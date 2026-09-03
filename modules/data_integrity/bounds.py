@@ -1,11 +1,12 @@
 """Shared bounds and stable identity helpers for external detector data."""
 
-import hashlib
 from typing import Any, Iterable
+
+from drishti_sdk.ids import deterministic_finding_id
 
 DEFAULT_MAX_EVIDENCE_ITEMS = 20
 DEFAULT_MAX_EVIDENCE_LENGTH = 512
-DEFAULT_MAX_PATH_LENGTH = 1024
+DEFAULT_MAX_PATH_LENGTH = 256
 DEFAULT_MAX_IDENTIFIER_LENGTH = 256
 DEFAULT_MAX_DUPLICATE_PATHS = 20
 
@@ -52,8 +53,6 @@ def stable_finding_id(
     asset_id: Any,
     evidence_identity: Iterable[Any],
 ) -> str:
-    identity = "|".join(
-        [module, category, str(asset_id), *sorted(str(item) for item in evidence_identity)]
+    return deterministic_finding_id(
+        module, str(asset_id), category, sorted(str(item) for item in evidence_identity)
     )
-    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16].upper()
-    return f"F-DATA-{digest}"

@@ -64,7 +64,6 @@ def test_finding_evidence_bounds_are_explicit():
         max_duplicate_paths=2,
         max_evidence_length=30,
     )[0]
-    assert finding["truncated"] is True
     assert any("truncated" in item for item in finding["evidence"])
     assert all(len(item) <= 30 for item in finding["evidence"])
 

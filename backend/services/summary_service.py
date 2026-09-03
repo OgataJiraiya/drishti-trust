@@ -53,11 +53,14 @@ class SummaryService:
         records = EvidenceRepository(session).all_ingestion_order()
         if assessment_id is None:
             eligible_ids = {record.finding_id for record in records}
-            trusted_ids = ModuleRunAuthenticationRepository(session).authenticated_finding_ids()
+            authentication_repository = ModuleRunAuthenticationRepository(session)
+            trusted_ids = authentication_repository.authenticated_finding_ids()
+            completed_modules = authentication_repository.authenticated_modules()
         else:
             memberships = AssessmentMembershipRepository(session)
             eligible_ids = memberships.finding_ids(assessment_id)
             trusted_ids = memberships.finding_ids(assessment_id, "ED25519")
+            completed_modules = memberships.authenticated_modules(assessment_id)
             records = [record for record in records if record.finding_id in eligible_ids]
         trusted_count = len(eligible_ids & trusted_ids)
         excluded_count = len(eligible_ids - trusted_ids)
@@ -73,7 +76,9 @@ class SummaryService:
 
         for module in FindingModule:
             module_findings = [finding for finding in findings if finding.module == module]
-            summary, exact_score, overrides = self._module_summary(module, module_findings)
+            summary, exact_score, overrides = self._module_summary(
+                module, module_findings, module.value in completed_modules
+            )
             modules[module] = summary
             if exact_score is not None:
                 exact_scores[module] = exact_score
@@ -168,13 +173,18 @@ class SummaryService:
         )
 
     def _module_summary(
-        self, module: FindingModule, findings: list[Finding]
+        self, module: FindingModule, findings: list[Finding], completed: bool = False
     ) -> tuple[ModuleAssurance, Decimal | None, list[str]]:
         if not findings:
             return ModuleAssurance(
                 display_name=MODULE_DISPLAY_NAMES[module],
                 availability="UNKNOWN",
-                availability_reason="No assessment evidence has been ingested for this module.",
+                availability_reason=(
+                    "Authenticated module completion reported zero findings; absence of findings "
+                    "does not establish safety."
+                    if completed else
+                    "No assessment evidence has been ingested for this module."
+                ),
                 assurance_score=None,
                 status=AssuranceStatus.UNKNOWN,
                 disposition=Recommendation.REVIEW,

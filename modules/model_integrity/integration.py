@@ -42,8 +42,6 @@ class ModelIntegrityRunBuilder:
     def build_run(self, *, assessment_id: str, producer: str,
                   producer_version: str | None, findings: list[Finding],
                   run_id: str | None = None) -> ModuleRunSubmission:
-        if not findings:
-            raise ValueError("the frozen ModuleRunSubmission requires at least one Finding")
         return self.client.build_run(module="model_integrity", assessment_id=assessment_id,
             producer=producer, producer_version=producer_version, findings=findings, run_id=run_id)
 

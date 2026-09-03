@@ -339,8 +339,9 @@ def test_existing_adapter_sdk_canonical_signing_and_assessment_binding(tmp_path)
                                                             module_run_signing_bytes(changed))
     assert run.run_id == builder.build_run(assessment_id="A", producer="person2",
         producer_version="M5", findings=findings).run_id
-    with pytest.raises(ValueError): builder.build_run(assessment_id="A", producer="person2",
-                                                       producer_version="M5", findings=[])
+    empty = builder.build_run(assessment_id="A", producer="person2",
+                              producer_version="M5", findings=[])
+    assert empty.findings == [] and empty.module.value == "model_integrity"
 
 
 def test_integration_wrapper_reuses_sdk_submission_and_result_is_json_safe(tmp_path):
@@ -451,18 +452,39 @@ async def test_signed_m5_preserves_draft_active_and_sealed_lifecycle(integration
 
 
 @pytest.mark.anyio
-async def test_actual_backend_rejects_zero_finding_run_contract(integration_client):
-    response = await integration_client.post("/api/integration/signed-runs", json={
-        "run": {"run_id": "EMPTY", "assessment_id": "A", "module": "model_integrity",
-                "producer": "p", "producer_version": "M5", "findings": []},
-        "key_id": "k", "signature": "AAAA"})
-    assert response.status_code == 422
-
-
-def test_zero_finding_backend_contract_is_preserved():
+async def test_authenticated_zero_finding_completion_is_unknown_and_replay_safe(integration_client):
+    key = Ed25519PrivateKey.generate()
     builder = ModelIntegrityRunBuilder(sdk())
-    with pytest.raises(ValueError, match="at least one Finding"):
-        builder.build_run(assessment_id="A", producer="p", producer_version="M5", findings=[])
+    await integration_client.post("/api/producers", json={"producer_id": "m5-empty",
+        "display_name": "M5 empty completion", "module": "model_integrity", "metadata": {}})
+    await integration_client.post("/api/producers/m5-empty/keys", json={"key_id": "empty-key",
+        "public_key_pem": _public_pem(key)})
+    await integration_client.post("/api/assessments", json={
+        "assessment_id": "M5-EMPTY", "name": "M5 empty", "metadata": {}})
+    await integration_client.post("/api/assessments/M5-EMPTY/activate")
+    run = builder.build_run(assessment_id="M5-EMPTY", producer="m5-empty",
+        producer_version="M5", findings=[], run_id="M5-EMPTY-RUN")
+    envelope = {"run": run.model_dump(mode="json"), "key_id": "empty-key",
+                "signature": builder.sign_run(run, private_key=key)}
+    first = await integration_client.post("/api/integration/signed-runs", json=envelope)
+    replay = await integration_client.post("/api/integration/signed-runs", json=envelope)
+    assert first.status_code == 200 and first.json()["result"] == "CREATED"
+    assert replay.status_code == 200 and replay.json()["result"] == "EXISTS"
+    stored = (await integration_client.get("/api/integration/runs/M5-EMPTY-RUN")).json()
+    assert stored["total_findings"] == 0 and stored["authentication"]["authenticated"] is True
+    summary = (await integration_client.get(
+        "/api/summary?assessment_id=M5-EMPTY&trust_scope=authenticated")).json()
+    module = summary["modules"]["model_integrity"]
+    assert module["availability"] == "UNKNOWN" and module["assurance_score"] is None
+    assert "does not establish safety" in module["availability_reason"]
+    assert summary["overall"]["assessment_coverage"] == 0
+
+
+def test_zero_finding_completion_preserves_frozen_finding_contract():
+    builder = ModelIntegrityRunBuilder(sdk())
+    run = builder.build_run(assessment_id="A", producer="p", producer_version="M5", findings=[])
+    assert run.findings == []
+    assert list(Finding.model_fields) == FROZEN_FIELDS
 
 
 def test_policy_inventory_and_frozen_backend_policy_untouched():

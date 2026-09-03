@@ -2,13 +2,18 @@ from typing import Any
 import os
 
 import numpy as np
-import torch
 from PIL import Image
 # These must be present before importing transformers/huggingface_hub, whose
 # offline configuration is read at import time in some supported versions.
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-from transformers import CLIPModel, CLIPProcessor
+try:
+    import torch
+    from transformers import CLIPModel, CLIPProcessor
+except ImportError:  # Optional local-only OOD runtime.
+    torch = None
+    CLIPModel = None
+    CLIPProcessor = None
 from .bounds import (
     DEFAULT_MAX_EVIDENCE_ITEMS,
     DEFAULT_MAX_EVIDENCE_LENGTH,
@@ -115,6 +120,8 @@ def load_clip_model(
 ):
     """Load the pretrained CLIP image model and processor."""
 
+    if CLIPProcessor is None or CLIPModel is None:
+        raise RuntimeError("local CLIP runtime dependencies are unavailable")
     # Belt-and-suspenders offline policy: transformers is never allowed to
     # consult the Hub even when a dependency changes its fallback behavior.
     # Explicitly prevent transformers from contacting Hugging Face.
@@ -132,6 +139,9 @@ def calculate_image_embedding(
     model,
 ) -> np.ndarray:
     """Generate a normalized CLIP embedding for one image."""
+
+    if torch is None:
+        raise RuntimeError("local CLIP runtime dependencies are unavailable")
 
     with Image.open(image_path) as image:
         image = image.convert("RGB")
@@ -376,7 +386,6 @@ def create_ood_findings(
                     "Threshold requires calibration for the target dataset.",
                     "Confidence is a deterministic heuristic, not a probability.",
                 ],
-                "truncated": asset_truncated or evidence_truncated,
             }
         )
 

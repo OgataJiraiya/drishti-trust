@@ -109,7 +109,6 @@ def create_duplicate_findings(
                 "limitations": [
                     "SHA-256 detects byte-identical files only."
                 ],
-                "truncated": truncated,
             }
         )
 

@@ -69,7 +69,8 @@ def test_inventory_and_recommendation_boundaries():
 def test_run_builder_empty_module_asset_and_signing(reports):
     c=sdk();builder=DistributionShiftRunBuilder(c);findings=builder.map_findings(reports["broad-shift"])
     assert isinstance(builder.adapter,DistributionShiftAdapter)
-    with pytest.raises(ValueError):builder.build_run(assessment_id="A",producer="p",producer_version="1",findings=[])
+    empty=builder.build_run(assessment_id="A",producer="p",producer_version="1",findings=[])
+    assert empty.findings==[] and empty.module.value=="distribution_shift"
     wrong=findings[0].model_copy(update={"module":"model_integrity"})
     with pytest.raises(ValueError):builder.build_run(assessment_id="A",producer="p",producer_version="1",findings=[wrong])
     run=builder.build_run(assessment_id="A",producer="p",producer_version="1",findings=findings);assert run.module.value=="distribution_shift" and run.findings[0].finding_id==findings[0].finding_id

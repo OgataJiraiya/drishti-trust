@@ -17,7 +17,7 @@ class ModuleRunSubmission(StrictSchema):
     module: FindingModule
     producer: str = Field(min_length=1, max_length=128)
     producer_version: str | None = Field(default=None, min_length=1, max_length=64)
-    findings: list[Finding] = Field(min_length=1, max_length=100)
+    findings: list[Finding] = Field(max_length=100)
 
     @field_validator("run_id", "producer")
     @classmethod

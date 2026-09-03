@@ -19,7 +19,6 @@ class DistributionShiftRunBuilder:
         self.client=client;self.adapter=DistributionShiftAdapter(client);self.mapper=DistributionShiftFindingMapper(self.adapter,policy)
     def map_findings(self,report:MultiSignalInterpretationReport):return self.mapper.map(report)
     def build_run(self,*,assessment_id:str,producer:str,producer_version:str|None,findings:list[Finding],run_id:str|None=None):
-        if not findings:raise ValueError("the frozen ModuleRunSubmission requires at least one Finding")
         if any(str(f.module)!="distribution_shift" for f in findings):raise ValueError("every Finding must belong to distribution_shift")
         return self.client.build_run(module="distribution_shift",assessment_id=assessment_id,producer=producer,producer_version=producer_version,findings=findings,run_id=run_id)
     def sign_run(self,run:ModuleRunSubmission,*,private_key:Ed25519PrivateKey|None=None,private_key_path:str|Path|None=None):return self.client.sign_run(run,private_key=private_key,private_key_path=private_key_path)

@@ -1,7 +1,6 @@
 """Unified, dataset-agnostic orchestration for data-integrity checks."""
 
 from collections import Counter
-import hashlib
 from itertools import combinations
 from pathlib import Path
 from typing import Any
@@ -18,7 +17,7 @@ from .label_anomaly import (
 )
 from .ood import analyze_ood, create_ood_findings
 from .phash import create_near_duplicate_findings, find_near_duplicates
-from .risk import aggregate_contributor_risk, aggregate_dataset_risk
+from .risk import aggregate_contributor_risk
 from .safe_images import SafeImageError, safe_image_files
 from .bounds import (
     DEFAULT_MAX_DUPLICATE_PATHS,
@@ -26,6 +25,8 @@ from .bounds import (
     DEFAULT_MAX_EVIDENCE_LENGTH,
     DEFAULT_MAX_IDENTIFIER_LENGTH,
     DEFAULT_MAX_PATH_LENGTH,
+    bounded_text,
+    stable_finding_id,
 )
 
 
@@ -97,14 +98,30 @@ def _discover_classes_file(
 
 
 def _stable_findings(findings: list[dict[str, Any]], max_findings: int | None) -> list[dict[str, Any]]:
-    """Assign identity-derived IDs so detector order cannot renumber findings."""
-    result = []
-    for finding in findings:
-        identity = "|".join([str(finding.get("module")), str(finding.get("category")), str(finding.get("asset_id")), *sorted(map(str, finding.get("evidence", [])))])
-        identifier = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16].upper()
-        result.append({**finding, "finding_id": f"F-DATA-{identifier}"})
+    """Sort SDK-derived identities so detector order cannot reorder findings."""
+    result = list(findings)
     result.sort(key=lambda item: item["finding_id"])
     return result if max_findings is None else result[:max_findings]
+
+
+def _bind_source_evidence(
+    findings: list[dict[str, Any]], samples: list[dict[str, Any]], max_identifier_length: int
+) -> None:
+    """Bind supplied source metadata to matching sample evidence without inventing identity."""
+    sample_lookup = {str(sample["sample_id"]): sample for sample in samples}
+    for finding in findings:
+        sample = sample_lookup.get(str(finding["asset_id"]))
+        if sample is None or sample.get("contributor_id") is None:
+            continue
+        contributor, _ = bounded_text(sample["contributor_id"], max_identifier_length)
+        source_evidence = [f"contributor_id={contributor}"]
+        if sample.get("batch_id") is not None:
+            batch, _ = bounded_text(sample["batch_id"], max_identifier_length)
+            source_evidence.append(f"batch_id={batch}")
+        finding["evidence"] = [*finding["evidence"], *source_evidence]
+        finding["finding_id"] = stable_finding_id(
+            finding["module"], finding["category"], finding["asset_id"], finding["evidence"]
+        )
 
 
 def analyze_dataset(
@@ -275,14 +292,13 @@ def analyze_dataset(
     # Exact byte duplicates are a stronger statement than their pHash=0 pair.
     exact_pairs = {tuple(sorted(pair)) for paths in exact_duplicates.values() for pair in combinations(paths, 2)}
     findings = [finding for finding in findings if not (finding["category"] == "NEAR_DUPLICATE" and tuple(sorted((finding["asset_id"], next((item.split("=", 1)[1] for item in finding["evidence"] if item.startswith("matched_sample=")), "")))) in exact_pairs)]
+    _bind_source_evidence(findings, samples, max_identifier_length)
     unbounded_count = len(findings)
     findings = _stable_findings(findings, max_findings)
     if len(findings) != unbounded_count:
         partial = True
         resource_limits_reached["max_findings"] = "Findings limited by max_findings."
         skipped_detectors["findings_limit"] = resource_limits_reached["max_findings"]
-    detector_risk_summary = aggregate_dataset_risk(findings)
-
     if run_risk:
         risk_summary = aggregate_contributor_risk(
             findings, samples, max_identifier_length=max_identifier_length
@@ -296,8 +312,7 @@ def analyze_dataset(
         skipped_detectors["risk"] = "Disabled by configuration."
 
     return {
-        "dataset_path": str(root),
-        "image_directory": str(image_path),
+        "dataset_id": root.name,
         "image_count": _image_count(image_path),
         "findings": findings,
         "finding_count": len(findings),
@@ -307,7 +322,6 @@ def analyze_dataset(
         "findings_by_severity": dict(
             sorted(Counter(finding["severity"] for finding in findings).items())
         ),
-        "detector_risk_summary": detector_risk_summary,
         "ood_calibration": ood_calibration_metadata,
         "risk_summary": risk_summary,
         "skipped_detectors": skipped_detectors,
