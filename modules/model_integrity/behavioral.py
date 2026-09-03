@@ -68,6 +68,13 @@ def _reference_worker(connection: Any, model_bytes: bytes, feeds: dict[str, np.n
         try:
             import resource
             cpu_limit = max(1, ceil(timeout))
+            try:
+                virtual_pages = int(Path("/proc/self/statm").read_text().split()[0])
+                inherited_address_space = virtual_pages * resource.getpagesize()
+            except (OSError, ValueError, IndexError) as exc:
+                raise RuntimeError("worker address-space usage unavailable") from exc
+            if inherited_address_space > address_space_bytes:
+                raise RuntimeError("worker inherited address space exceeds configured ceiling")
             resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit + 1))
             resource.setrlimit(resource.RLIMIT_AS, (address_space_bytes, address_space_bytes))
         except (ImportError, AttributeError, OSError, ValueError) as exc:

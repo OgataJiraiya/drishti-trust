@@ -543,6 +543,19 @@ def test_low_worker_memory_ceiling_fails_bounded_without_restricting_parent(tmp_
     assert np.zeros(1024, np.float64).nbytes == 8192
 
 
+def test_preloaded_parent_cannot_make_tiny_worker_ceiling_succeed(tmp_path):
+    from onnx.reference import ReferenceEvaluator
+    path = make_classifier(tmp_path / "preloaded.onnx")
+    parent_evaluator = ReferenceEvaluator(onnx.load(path))
+    parent_output = parent_evaluator.run(None, {"input": np.zeros((1,1,8,8), np.float32)})
+    runtime = ReferenceOnnxRuntime(max_address_space_bytes=16 * 1024 * 1024)
+    status, outputs, error = runtime.run(path.read_bytes(),
+        {"input": np.zeros((1,1,8,8), np.float32)}, 2)
+    assert status == RuntimeStatus.FAILURE and outputs is None
+    assert error and "inherited address space exceeds configured ceiling" in error
+    assert len(parent_output) == 1 and np.asarray(parent_output[0]).shape == (1, 2)
+
+
 def test_repeated_clean_and_sensitive_reports_are_stable(tmp_path, contracts, corpus):
     clean_path = make_classifier(tmp_path / "clean-repeat.onnx")
     sensitive_path = make_classifier(tmp_path / "sensitive-repeat.onnx", trigger_sensitive=True)
