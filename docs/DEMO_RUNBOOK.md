@@ -3,7 +3,7 @@
 ## Prerequisites and setup
 
 Use Linux with Python 3.11–3.14, Python `venv`, Node.js 22+, and npm 10+. From a fresh
-clone of `feat/full-system-integration` run `make setup`.
+clone of `main` run `make setup`.
 
 This creates a repository-local `.venv`, installs `backend/requirements.txt`, and runs
 `npm ci`. Package installation may require an index; after installation the runtime and
