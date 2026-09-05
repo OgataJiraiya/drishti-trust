@@ -7,7 +7,7 @@ import { Badge } from '../ui';
 const nav = [
   ['/', 'Overview', LayoutDashboard], ['/findings', 'Findings', FileWarning],
   ['/distribution', 'Distribution Shift', Activity], ['/graph', 'Assurance Graph', Network],
-  ['/reports', 'Reports', FileText], ['/system', 'System', ServerCog],
+  ['/new-assessment', 'New Assessment', FileText], ['/reports', 'Reports', FileText], ['/system', 'System', ServerCog],
 ] as const;
 
 export function AppShell({ children, assessments, selected, onSelect, backend, demo }: { children: ReactNode; assessments: Assessment[]; selected: string; onSelect: (id: string) => void; backend: BackendState; demo: boolean }) {

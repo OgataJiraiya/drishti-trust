@@ -17,6 +17,7 @@ class Settings:
     admin_bearer_token: str | None = None
     internal_ingest_bearer_token: str | None = None
     allow_unsigned_ingestion: bool = False
+    intake_origin: str | None = None
 
     @property
     def database_path(self) -> Path:
@@ -27,6 +28,7 @@ def _environment_settings() -> Settings:
     return Settings(
         data_dir=Path(os.environ["DRISHTI_DATA_DIR"]) if os.getenv("DRISHTI_DATA_DIR") else Settings.data_dir,
         key_dir=Path(os.environ["DRISHTI_KEY_DIR"]) if os.getenv("DRISHTI_KEY_DIR") else Settings.key_dir,
+        intake_origin=os.getenv("DRISHTI_INTAKE_ORIGIN") or None,
         admin_bearer_token=os.getenv("DRISHTI_ADMIN_BEARER_TOKEN") or None,
         internal_ingest_bearer_token=os.getenv("DRISHTI_INTERNAL_INGEST_BEARER_TOKEN") or None,
         allow_unsigned_ingestion=os.getenv(

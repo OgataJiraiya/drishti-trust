@@ -48,7 +48,7 @@
 .findings-page{padding:31px 25px 0}.findings-page .reference-page-header{width:calc(100% - 237px);height:91px;margin:0}.findings-page .reference-page-header h1{text-transform:uppercase}.findings-search{width:205px}.findings-layout{height:697px;display:grid;grid-template-columns:minmax(0,1fr) 237px;gap:24px}.findings-main{border:0;background:transparent}.filter-bar{width:100%;height:66px;border:0;padding:18px 0 13px;grid-template-columns:82px 82px 130px;gap:12px}.filter-bar label span{display:none}.filter-bar select{height:28px;font-size:10px}.explorer-head,.explorer-row{grid-template-columns:76px 77px 1fr 55px 50px;gap:8px}.explorer-head{height:28px;padding:0 12px}.explorer-row{height:73px;padding:8px 10px 8px 14px;background:transparent}.explorer-row.selected{box-shadow:none;background:#1b1e24}.explorer-row code,.explorer-row b,.explorer-row small{font-size:9px}.finding-inspector{position:absolute;right:0;top:var(--header);width:262px;height:calc(100vh - var(--header));padding:27px;background:#1a1c21;border:0;border-left:1px solid var(--line)}.finding-inspector-head{padding-bottom:20px}.copy-field{display:none}.inspector-label{margin-top:25px}.finding-inspector dl div{padding:8px 0}.finding-inspector section{padding:15px 0}.finding-inspector details{padding:15px 0}.analyst-actions{position:absolute;left:0;right:0;bottom:0;padding:18px 20px 24px;grid-template-columns:1fr 1fr;background:#1a1c21}.analyst-actions button{height:33px}.analyst-actions button:last-child{grid-column:1/-1}.contract-note{width:calc(100% - 262px)}
 
 /* Distribution */
-.distribution-page{padding:31px 52px}.distribution-page .reference-page-header{height:92px}.distribution-page .reference-page-header h1{font-size:27px}.distribution-page .reference-page-header h1:before{content:'DRIFT';display:block}.distribution-page .reference-page-header h1{font-size:0}.distribution-page .reference-page-header h1:after{content:'Reference vs Current';display:block;text-transform:none;font-size:13px;color:var(--muted);font-weight:400;margin-top:9px}.distribution-page .reference-page-header p{display:none}.drift-reference-summary{grid-template-columns:227px 1fr;gap:25px}.drift-reference-summary section{height:128px;padding:20px}.drift-reference-summary strong{font-size:28px}.drift-reference-summary section:nth-child(2)>strong{font-size:15px}.drift-analysis-reference{grid-template-columns:minmax(0,1fr) 228px;gap:25px;margin-top:25px}.drift-chart,.deviation-panel{height:296px;padding:20px}.drift-chart svg{height:213px}.deviation-panel{display:grid;grid-template-columns:1fr 1fr;gap:12px}.deviation-panel>span{grid-column:1/-1}.deviation-panel>div,.deviation-panel>div:first-of-type{height:106px;margin:0;border:1px solid var(--line);padding:12px}.deviation-panel>div strong{align-self:end;font-size:16px}.drift-recommendation{height:68px;margin-top:39px}.distribution-page .reference-limitations{margin-top:27px}
+.distribution-page{padding:31px 52px}.distribution-page .reference-page-header{height:92px}.distribution-page .reference-page-header h1{font-size:27px}.distribution-page .reference-page-header h1:before{content:'Distribution Shift';display:block}.distribution-page .reference-page-header h1{font-size:0}.distribution-page .reference-page-header h1:after{content:'Reference vs Current';display:block;text-transform:none;font-size:13px;color:var(--muted);font-weight:400;margin-top:9px}.distribution-page .reference-page-header p{display:none}.drift-reference-summary{grid-template-columns:227px 1fr;gap:25px}.drift-reference-summary section{height:128px;padding:20px}.drift-reference-summary strong{font-size:28px}.drift-reference-summary section:nth-child(2)>strong{font-size:15px}.drift-analysis-reference{grid-template-columns:minmax(0,1fr) 228px;gap:25px;margin-top:25px}.drift-chart,.deviation-panel{height:296px;padding:20px}.drift-chart svg{height:213px}.deviation-panel{display:grid;grid-template-columns:1fr 1fr;gap:12px}.deviation-panel>span{grid-column:1/-1}.deviation-panel>div,.deviation-panel>div:first-of-type{height:106px;margin:0;border:1px solid var(--line);padding:12px}.deviation-panel>div strong{align-self:end;font-size:16px}.drift-recommendation{height:68px;margin-top:39px}.distribution-page .reference-limitations{margin-top:27px}
 
 /* Graph */
 .app-shell:has(.graph-page){--header:80px}.graph-page{padding:30px 0 0 80px}.graph-page .reference-page-header{height:116px;margin:0}.graph-page .reference-page-header h1{font-size:39px}.graph-page .reference-page-header h1:after{content:'ASSURANCE GRAPH';font-size:39px}.graph-page .reference-page-header h1{font-size:0}.graph-page .reference-page-header p{font-size:21px}.graph-layout{height:1054px;grid-template-columns:minmax(0,1fr) 400px}.graph-canvas,.graph-inspector{height:1054px}.graph-inspector{padding:29px}.graph-nodes{inset:366px 60px}.graph-node{width:180px;height:101px;padding:25px 18px;text-align:center}.graph-node small{font-size:14px}.graph-node strong{font-size:0;margin:8px 0}.graph-node code{font-size:17px;color:var(--teal)}.node-1,.node-4{left:calc(50% - 90px)}.node-3,.node-4,.node-5{top:210px}.reference-connected:before{top:38px}.reference-connected:after{top:248px}.reference-connected .node-2:after{top:122px}.graph-toolbar{flex-direction:column;left:30px;bottom:30px}.graph-toolbar button{width:54px;height:54px}.graph-inspector .eyebrow{font-size:15px;letter-spacing:.12em}.graph-inspector .node-id{font-size:29px}.graph-inspector h2{font-size:0}.graph-inspector dl{margin-top:35px}.graph-inspector dt{font-size:15px}.graph-inspector dd{font-size:16px}.graph-inspector section{margin-top:35px;border-top:1px solid var(--line);padding-top:45px}.graph-inspector section h3{font-size:15px}.evidence-trace li{font-size:16px;padding-bottom:26px}
@@ -117,3 +117,67 @@
 .system-page .module-status-reference article{height:auto;min-height:88px}
 .system-page .module-status-reference article>div{display:block;padding-right:80px}
 .system-page .module-status-reference article small{display:block;margin-top:8px;overflow-wrap:anywhere}
+
+/* Authenticated evidence and accessible help. */
+.module-help, .status-help { margin: 10px 0; font-size: 12px; }
+.module-help summary, .status-help summary, .evidence-summary h3 { color: var(--text-muted, #a9bbc8); }
+.module-help p, .status-help dd { line-height: 1.6; }
+summary { cursor: pointer; }
+summary:focus-visible, button:focus-visible { outline: 2px solid #5de0cc; outline-offset: 3px; }
+.evidence-value { display: flex; align-items: center; gap: 8px; margin: 10px 0; min-width: 0; }
+.evidence-value code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.evidence-value button { flex: none; }
+.live-graph { padding: 70px 24px 24px; max-height: 650px; overflow: auto; }
+.live-graph section { margin: 12px 0 12px 20px; }
+.live-graph button { display: block; padding: 12px; max-width: 100%; border: 1px solid #38615f; background: #102626; color: #dcf6f1; text-align: left; }
+.live-graph code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-graph p { color: #5de0cc; margin: 8px 0 8px 16px; }
+.graph-legend { line-height: 1.8; }
+.overview-assurance > div > strong { font-size: clamp(28px, 3.6vw, 52px); }
+
+.intake-page { max-width: 1100px; }
+.intake-page fieldset { padding: 20px; margin: 18px 0; border: 1px solid #35504e; }
+.intake-page label { display: flex; flex-direction: column; gap: 8px; margin: 18px 0; }
+.intake-page input, .intake-page textarea, .intake-page select { padding: 10px; background: #102020; color: #e5efed; border: 1px solid #46605e; }
+.intake-page input[type=checkbox] { align-self: start; }
+.intake-page p { line-height: 1.6; }
+.intake-page button { padding: 12px 18px; border: 1px solid #5ccbbb; color: #d7fff8; background: #15332e; }
+.intake-page button:disabled { opacity: .45; }
+.intake-page article { margin: 18px 0; overflow-wrap: anywhere; }
+/* Allow help and long identities to occupy real space, without overlapping cards. */
+.overview-workspace { padding-top: 64px; }
+.overview-modules { grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: start; }
+.overview-module { width: auto; min-width: 0; height: auto; min-height: 155px; }
+.overview-module > small { white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
+.module-help p { margin-top: 10px; }
+.overview-attention { max-width: 100%; }
+.overview-attention code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.overview-attention > div > p { min-width: 0; }
+.graph-page .graph-layout, .graph-page .graph-canvas, .graph-page .graph-inspector { height: 650px; }
+.graph-page .graph-inspector .node-id { font-size: 14px; overflow-wrap: anywhere; }
+.graph-page .graph-inspector .evidence-trace li { overflow-wrap: anywhere; }
+.graph-page .graph-inspector h2 { font-size: 16px; }
+.intake-page > fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; }
+.intake-page > fieldset > p, .intake-page > fieldset > fieldset, .intake-page > fieldset > button { grid-column: 1 / -1; }
+.intake-page label { min-width: 0; }
+.intake-page input { min-width: 0; max-width: 100%; }
+.intake-page label:has(textarea), .intake-page label:has(input[type=password]) { grid-column: 1 / -1; }
+@media(max-width: 900px) {
+  .overview-modules { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .intake-page > fieldset { grid-template-columns: minmax(0, 1fr); }
+}
+
+.live-distribution .drift-analysis-reference { grid-template-columns: minmax(0, 1fr); }
+.live-distribution .drift-chart { height: auto; min-height: 220px; }
+.live-distribution .live-unavailable { min-height: 110px; height: auto; margin: 20px 0; }
+.live-distribution .deviation-panel { display: none; }
+.live-distribution .evidence-summary { margin-top: 24px; }
+.live-distribution .evidence-summary h2 { font-size: 14px; }
+
+.live-graph { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.live-graph > button { grid-column: 1 / -1; }
+.live-graph > section { margin: 0; min-width: 0; padding-left: 12px; border-left: 1px solid #38615f; }
+.live-graph > section button { width: 100%; }
+.graph-canvas:has(.live-graph) .graph-toolbar { top: 12px; right: 12px; bottom: auto; left: auto; flex-direction: row; }
+.graph-canvas:has(.live-graph) .graph-toolbar button { width: 34px; height: 34px; }
+@media(max-width: 900px) { .live-graph { grid-template-columns: minmax(0, 1fr); } }

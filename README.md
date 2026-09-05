@@ -123,3 +123,7 @@ Known limitations include heuristic detectors/scoring, bearer-token MVP access c
 `create_all` rather than migrations, no trusted timestamp/HSM, checkpoint-key compromise,
 total database destruction, and the need to pin clean-tail checkpoints externally. See
 [full-system integration](docs/FULL_SYSTEM_INTEGRATION.md) for details.
+
+## Real organization assessments
+
+`make demo` uses controlled fixtures. Live **New Assessment** (`/new-assessment`) accepts organization-provided ONNX and optional bounded evidence, runs existing detectors, submits signed ModuleRuns and seals a backend assessment. It uses a short-lived local intake capability, never the admin bearer in the browser. See [Organization Assessment](docs/ORGANIZATION_ASSESSMENT.md) for setup, supported formats, explicit behavioral opt-in, security, limits and CLI fallback.

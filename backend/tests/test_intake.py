@@ -1,0 +1,353 @@
+"""Real local ONNX intake and fail-closed authorization regression tests."""
+import base64
+import io
+import time
+from hashlib import sha256
+
+import httpx
+import numpy as np
+import onnx
+from onnx import helper, TensorProto
+from PIL import Image
+import pytest
+
+from backend.core.config import Settings
+from backend.main import create_app
+from backend.services.intake_service import MAX_FILE
+
+ORIGIN = 'http://127.0.0.1:5173'
+
+
+def model_bytes():
+    tensor = lambda name: helper.make_tensor_value_info(name, TensorProto.FLOAT, [1, 3, 8, 8])
+    model = helper.make_model(helper.make_graph([helper.make_node('Identity', ['input'], ['output'])],
+        'organization-test', [tensor('input')], [tensor('output')]), opset_imports=[helper.make_opsetid('', 18)])
+    model.ir_version = 10
+    return model.SerializeToString()
+
+
+@pytest.fixture
+async def intake(tmp_path):
+    app = create_app(Settings(data_dir=tmp_path / 'data', key_dir=tmp_path / 'keys',
+        admin_bearer_token='local-admin', intake_origin=ORIGIN))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app, client=('127.0.0.1', 1234)), base_url='http://127.0.0.1:8000') as client:
+        response = await client.post('/api/intake/capabilities', headers={'Authorization': 'Bearer local-admin'})
+        assert response.status_code == 200
+        headers = {'Origin': ORIGIN, 'X-Drishti-Intake': response.json()['capability']}
+        yield app, client, headers
+
+
+async def stage(client, headers, role, name, data):
+    return await client.put('/api/intake/job/files/' + role, content=data, headers={**headers, 'X-Drishti-Filename': name})
+
+
+@pytest.mark.anyio
+async def test_authorization_expiry_origin_and_scope(intake):
+    app, client, headers = intake
+    assert (await client.post('/api/intake/job', json={'name': 'x'})).status_code == 403
+    assert (await client.post('/api/intake/job', json={'name': 'x'}, headers={'Origin': ORIGIN})).status_code == 401
+    assert (await client.post('/api/intake/job', json={'name': 'x'}, headers={**headers, 'Origin': 'https://example.org'})).status_code == 403
+    assert (await client.post('/api/assessments', json={'assessment_id': 'x', 'name': 'x'}, headers=headers)).status_code == 401
+    digest = sha256(headers['X-Drishti-Intake'].encode()).hexdigest()
+    app.state.intake_service.capabilities[digest] = (time.monotonic() - 1, None)
+    assert (await client.post('/api/intake/job', json={'name': 'x'}, headers=headers)).status_code == 401
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('filename,status', [('../model.onnx', 422), ('evil.pkl', 415), ('a\\b.onnx', 422), ('model.zip', 415)])
+async def test_unsafe_upload_rejected(intake, filename, status):
+    _, client, headers = intake
+    await client.post('/api/intake/job', json={'name': 'x'}, headers=headers)
+    assert (await stage(client, headers, 'candidate', filename, b'bad')).status_code == status
+
+
+@pytest.mark.anyio
+async def test_size_symlink_and_cleanup(intake, tmp_path):
+    app, client, headers = intake
+    result = await client.post('/api/intake/job', json={'name': 'x'}, headers=headers)
+    root = app.state.intake_service.root / result.json()['assessment_id']
+    assert root.stat().st_mode & 0o777 == 0o700
+    response = await client.put('/api/intake/job/files/candidate', content=b'bad', headers={**headers, 'X-Drishti-Filename': 'm.onnx', 'Content-Length': str(MAX_FILE + 1)})
+    assert response.status_code == 413
+    (root / 'candidate').symlink_to(tmp_path, target_is_directory=True)
+    assert (await stage(client, headers, 'candidate', 'm.onnx', b'bad')).status_code == 422
+    assert (await client.delete('/api/intake/job', headers=headers)).status_code == 200
+    assert not root.exists()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('scenario', ['candidate', 'reference', 'behavioral', 'full'])
+async def test_real_organization_scenarios(intake, scenario):
+    app, client, headers = intake
+    body = {'name': 'Organization model assessment'}
+    if scenario == 'behavioral':
+        body['behavioral'] = {'execute': True, 'input_name': 'input', 'output_name': 'output',
+            'layout': 'NCHW', 'value_min': 0, 'value_max': 1, 'class_axis': -1}
+    created = await client.post('/api/intake/job', json=body, headers=headers)
+    assert created.status_code == 201, created.text
+    identity = created.json()['assessment_id']
+    payload = model_bytes()
+    uploaded = await stage(client, headers, 'candidate', 'candidate.onnx', payload)
+    assert uploaded.status_code == 200, uploaded.text
+    assert uploaded.json()['sha256'] == sha256(payload).hexdigest()
+    if scenario == 'reference':
+        assert (await stage(client, headers, 'reference', 'reference.onnx', payload)).status_code == 200
+    if scenario == 'behavioral':
+        stream = io.BytesIO()
+        np.save(stream, np.ones((2, 1, 3, 8, 8), dtype=np.float32) * .5, allow_pickle=False)
+        assert (await stage(client, headers, 'corpus', 'corpus.npy', stream.getvalue())).status_code == 200
+    if scenario == 'full':
+        for role in ['dataset', 'distribution_reference', 'distribution_current']:
+            for index in range(20):
+                stream = io.BytesIO()
+                Image.new('RGB', (8, 8), 'white' if role == 'distribution_current' else 'black').save(stream, format='PNG')
+                assert (await stage(client, headers, role, f'{index}.png', stream.getvalue())).status_code == 200
+        import json
+        reference = np.random.default_rng(42).normal(size=(40, 4))
+        pair = {'descriptor': {'extractor_name': 'organization-extractor', 'extractor_version': '1', 'output_dimension': 4, 'normalization': 'NONE'}, 'reference': reference.tolist(), 'current': (reference + 5).tolist()}
+        assert (await stage(client, headers, 'representation', 'representation.json', json.dumps(pair).encode())).status_code == 200
+        pair = {'descriptor': {'evidence_tier': 'FULL_PROBABILITIES', 'class_labels': ['A', 'B'], 'output_family': 'CLASSIFICATION', 'probability_semantics': 'CLASS_PROBABILITIES', 'abstention_semantics': 'caller', 'unknown_semantics': 'caller'},
+            'reference': [{'predicted_label': 'A', 'confidence': .9, 'probabilities': [.9, .1], 'abstained': False, 'unknown_or_ood': False} for _ in range(40)],
+            'current': [{'predicted_label': 'B', 'confidence': .9, 'probabilities': [.1, .9], 'abstained': False, 'unknown_or_ood': False} for _ in range(40)]}
+        assert (await stage(client, headers, 'prediction', 'prediction.json', json.dumps(pair).encode())).status_code == 200
+        receipt = await client.post('/api/inference/receipt', json={'filename': 'sample.bin',
+            'input_base64': base64.b64encode(b'organization-input').decode(), 'model_id': 'organization-model',
+            'model_sha256': sha256(payload).hexdigest(), 'output': {'value': 1}})
+        import json
+        assert (await stage(client, headers, 'inference', 'receipt.json', json.dumps({'receipt': receipt.json()}).encode())).status_code == 200
+    started = await client.post('/api/intake/job/run', headers=headers)
+    assert started.status_code == 202, started.text
+    job = (await client.get('/api/intake/job', headers=headers)).json()
+    assert job['state'] == 'COMPLETE', job
+    assert job['detail']['lifecycle'] == 'SEALED'
+    assert not (app.state.intake_service.root / identity).exists()
+    assert str(app.state.settings.data_dir) not in str(job)
+    runs = (await client.get(f'/api/assessments/{identity}/runs')).json()['items']
+    assert len(runs) == (4 if scenario == 'full' else 1)
+    assert all(run['authentication']['authenticated'] and run['authentication']['mode'] == 'ED25519' for run in runs)
+    assert (await client.get(f'/api/assessments/{identity}/snapshot/verify')).json()['status'] == 'VALID'
+    if scenario == 'full':
+        assert job['detail']['distribution']['interpretation'] == 'BROAD_MULTILAYER_SHIFT'
+    if scenario != 'full':
+        assert job['modules']['dataset_integrity'] == 'NOT PROVIDED'
+        assert job['modules']['distribution_shift'] == 'NOT PROVIDED'
+        # Frozen scoring intentionally treats a zero-Finding run as UNKNOWN.
+        # A completed detector is not enough to manufacture score coverage.
+        assert job['detail']['summary']['overall']['assessment_coverage'] < 1
+    if scenario == 'reference': assert job['detail']['comparison'] in {'COMPLETE', 'PARTIAL'}
+    if scenario == 'behavioral': assert job['detail']['behavioral'] == 'COMPLETE'
+
+
+@pytest.mark.anyio
+async def test_invalid_model_never_manufactures_completion(intake):
+    app, client, headers = intake
+    created = await client.post('/api/intake/job', json={'name': 'Invalid model'}, headers=headers)
+    await stage(client, headers, 'candidate', 'invalid.onnx', b'not ONNX')
+    await client.post('/api/intake/job/run', headers=headers)
+    job = (await client.get('/api/intake/job', headers=headers)).json()
+    assert job['state'] == 'FAILED'
+    assert not (app.state.intake_service.root / created.json()['assessment_id']).exists()
+    assert (await client.get('/api/assessments')).json()['total'] == 0
+
+
+@pytest.mark.anyio
+async def test_expired_staging_is_cleaned_and_capability_is_single_job(intake):
+    app, client, headers = intake
+    created = await client.post('/api/intake/job', json={'name': 'expires'}, headers=headers)
+    assert (await client.post('/api/intake/job', json={'name': 'second'}, headers=headers)).status_code == 409
+    digest = sha256(headers['X-Drishti-Intake'].encode()).hexdigest()
+    _, job = app.state.intake_service.capabilities[digest]
+    app.state.intake_service.capabilities[digest] = (time.monotonic() - 1, job)
+    app.state.intake_service.reap()
+    assert not (app.state.intake_service.root / created.json()['assessment_id']).exists()
+
+
+@pytest.mark.anyio
+async def test_wrong_host_and_narrow_cors(intake):
+    _, client, headers = intake
+    assert (await client.get('/api/intake/job', headers={**headers, 'Host': 'attacker.example'})).status_code == 403
+    preflight = {'Origin': ORIGIN, 'Access-Control-Request-Method': 'PUT', 'Access-Control-Request-Headers': 'x-drishti-intake,x-drishti-filename'}
+    allowed = await client.options('/api/intake/job/files/candidate', headers=preflight)
+    assert allowed.status_code == 200
+    assert allowed.headers['access-control-allow-origin'] == ORIGIN
+    assert '*' not in allowed.headers['access-control-allow-methods']
+    assert (await client.options('/api/models/register/artifact', headers=preflight)).status_code == 400
+
+
+@pytest.mark.anyio
+async def test_missing_corpus_and_reference_only_do_not_execute(intake):
+    _, client, headers = intake
+    await client.post('/api/intake/job', json={'name': 'No candidate'}, headers=headers)
+    await stage(client, headers, 'reference', 'reference.onnx', model_bytes())
+    assert (await client.post('/api/intake/job/run', headers=headers)).status_code == 422
+    assert (await client.get('/api/assessments')).json()['total'] == 0
+
+
+@pytest.mark.anyio
+async def test_missing_distribution_reference_does_not_submit_run(intake):
+    _, client, headers = intake
+    await client.post('/api/intake/job', json={'name': 'Partial input'}, headers=headers)
+    await stage(client, headers, 'candidate', 'candidate.onnx', model_bytes())
+    await stage(client, headers, 'distribution_current', 'current.png', b'not an image')
+    await client.post('/api/intake/job/run', headers=headers)
+    job = (await client.get('/api/intake/job', headers=headers)).json()
+    assert job['state'] == 'COMPLETE'
+    assert job['modules']['distribution_shift'] == 'NOT PROVIDED'
+
+
+@pytest.mark.anyio
+async def test_insufficient_distribution_support_does_not_create_coverage(intake):
+    _, client, headers = intake
+    await client.post('/api/intake/job', json={'name': 'Insufficient windows'}, headers=headers)
+    await stage(client, headers, 'candidate', 'candidate.onnx', model_bytes())
+    stream = io.BytesIO()
+    Image.new('RGB', (8, 8), 'black').save(stream, format='PNG')
+    for role in ['distribution_reference', 'distribution_current']:
+        await stage(client, headers, role, 'sample.png', stream.getvalue())
+    await client.post('/api/intake/job/run', headers=headers)
+    job = (await client.get('/api/intake/job', headers=headers)).json()
+    assert job['state'] == 'COMPLETE'
+    assert job['modules']['distribution_shift'] == 'UNAVAILABLE'
+    assert job['detail']['modules_submitted'] == ['model_integrity']
+    assert job['detail']['summary']['modules']['distribution_shift']['availability'] == 'UNKNOWN'
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('fault,persisted_count,job_state', [
+    ('after_activation', 0, 'FAILED'),
+    ('first_ingest', 0, 'FAILED'),
+    ('second_ingest', 1, 'FAILED'),
+    ('after_first_ingest_commit', 1, 'FAILED'),
+    ('seal_transient', 2, 'COMPLETE'),
+    ('after_seal_commit', 2, 'COMPLETE'),
+    ('outbox_after_seal', 2, 'COMPLETE'),
+    ('producer', 0, 'FAILED'),
+    ('key', 0, 'FAILED'),
+    ('authentication', 0, 'FAILED'),
+])
+async def test_finalization_faults_preserve_lifecycle_and_submission_truth(
+    intake, monkeypatch, fault, persisted_count, job_state,
+):
+    from sqlalchemy import text
+    app, client, headers = intake
+    state = app.state
+    created = await client.post('/api/intake/job', json={'name': 'Fault-injection assessment'}, headers=headers)
+    identity = created.json()['assessment_id']
+    # Real detector evidence, not manufactured PASS or test-supplied Findings.
+    model = onnx.load_model_from_string(model_bytes())
+    model.graph.initializer.append(helper.make_tensor('nonfinite_parameter', TensorProto.FLOAT, [1], [float('nan')]))
+    await stage(client, headers, 'candidate', 'candidate.onnx', model.SerializeToString())
+    image = io.BytesIO()
+    Image.new('RGB', (8, 8), 'black').save(image, format='PNG')
+    for index in range(2):
+        await stage(client, headers, 'dataset', f'{index}.png', image.getvalue())
+    job = state.intake_service.authorize(headers['X-Drishti-Intake'])[1]
+    activation = state.assessment_service.activate
+    ingest = state.integration_service.ingest_run
+    seal = state.assessment_service.seal
+    preactivation = fault in {'producer', 'key', 'authentication'}
+    calls = {'ingest': 0, 'seal': 0}
+    envelopes = []
+
+    def activate_then_fail(*args, **kwargs):
+        activation(*args, **kwargs)
+        raise RuntimeError('injected failure after activation commit')
+
+    def checked_ingest(run, session, authentication):
+        # No module becomes COMPLETE just because its local detector returned.
+        assert job.modules[run.module.value] == 'SUBMITTING'
+        other = 'dataset_integrity' if run.module.value == 'model_integrity' else 'model_integrity'
+        assert job.modules[other] == ('AWAITING SUBMISSION' if calls['ingest'] == 0 else 'COMPLETE')
+        calls['ingest'] += 1
+        if (fault == 'first_ingest' and calls['ingest'] == 1) or (fault == 'second_ingest' and calls['ingest'] == 2):
+            # Leave an open transaction to ensure fresh-session recovery rolls it back.
+            session.execute(text('BEGIN IMMEDIATE'))
+            raise RuntimeError('injected ingestion failure')
+        result = ingest(run, session, authentication)
+        envelopes.append(run)
+        if fault == 'after_first_ingest_commit' and calls['ingest'] == 1:
+            raise RuntimeError('injected failure after ingest commit')
+        return result
+
+    def transient_seal(*args, **kwargs):
+        calls['seal'] += 1
+        if calls['seal'] == 1:
+            if fault == 'after_seal_commit':
+                seal(*args, **kwargs)
+            else:
+                args[1].execute(text('BEGIN IMMEDIATE'))
+            raise RuntimeError('injected sealing failure')
+        return seal(*args, **kwargs)
+
+    def fail_before_activation(*args, **kwargs):
+        assert job.modules['model_integrity'] == 'AWAITING SUBMISSION'
+        assert job.modules['dataset_integrity'] == 'AWAITING SUBMISSION'
+        from backend.database.repository import AssessmentRepository
+        with state.session_factory() as session:
+            assert AssessmentRepository(session).get(identity) is None
+            assert AssessmentRepository(session).active() is None
+        raise RuntimeError('injected preparation failure')
+
+    def fail_drain():
+        assert job.detail['lifecycle'] == 'SEALED'
+        assert job.detail['snapshot_verification'] == 'VALID'
+        raise RuntimeError('injected deferred outbox failure')
+
+    with monkeypatch.context() as patch:
+        patch.setattr(state.integration_service, 'ingest_run', checked_ingest)
+        if fault == 'after_activation': patch.setattr(state.assessment_service, 'activate', activate_then_fail)
+        if fault in {'seal_transient', 'after_seal_commit'}: patch.setattr(state.assessment_service, 'seal', transient_seal)
+        if fault == 'producer': patch.setattr(state.producer_service, 'register_producer', fail_before_activation)
+        if fault == 'key': patch.setattr(state.producer_service, 'register_key', fail_before_activation)
+        if fault == 'authentication': patch.setattr(state.module_auth_service, 'authenticate', fail_before_activation)
+        if fault == 'outbox_after_seal': patch.setattr(state.audit_outbox_service, 'drain_pending', fail_drain)
+        response = await client.post('/api/intake/job/run', headers=headers)
+        assert response.status_code == 202
+
+    result = (await client.get('/api/intake/job', headers=headers)).json()
+    assert result['state'] == job_state, result
+    assert not job.root.exists()
+    assert (await client.get('/api/assessments?status=ACTIVE')).json()['total'] == 0
+    assert (await client.get('/api/assessments/current')).status_code == 404
+    if preactivation:
+        assert (await client.get(f'/api/assessments/{identity}')).status_code == 404
+        assert result['modules']['model_integrity'] == 'NOT SUBMITTED'
+        assert result['modules']['dataset_integrity'] == 'NOT SUBMITTED'
+    else:
+        assert (await client.get(f'/api/assessments/{identity}')).json()['status'] == 'SEALED'
+        assert (await client.get(f'/api/assessments/{identity}/snapshot/verify')).json()['status'] == 'VALID'
+        runs = (await client.get(f'/api/assessments/{identity}/runs')).json()['items']
+        assert len(runs) == persisted_count
+        assert {run['run_id'] for run in runs} == {run.run_id for run in envelopes}
+        assert set(result['detail']['runs_submitted']) == {run['run_id'] for run in runs}
+        assert all(run['authentication']['authenticated'] for run in runs)
+        assert {run['module'] for run in runs} == {module for module, status in result['modules'].items() if status == 'COMPLETE'}
+        assert set(result['detail']['modules_submitted']) == {run['module'] for run in runs}
+        expected_findings = {finding.finding_id for run in envelopes for finding in run.findings}
+        assert {identity for run in runs for identity in run['finding_ids']} == expected_findings
+        summary = result['detail']['summary']
+        assert summary['trusted_finding_count'] == len(expected_findings)
+        assert summary['overall']['assessment_coverage'] == [0, .35, .60][persisted_count]
+        if not persisted_count:
+            assert summary['overall']['assurance_score'] is None
+            assert summary['overall']['score_status'] == 'UNAVAILABLE'
+            assert summary['overall']['disposition'] == 'REVIEW'
+            assert not summary['latest_findings']
+        if fault == 'outbox_after_seal':
+            assert result['state'] == 'COMPLETE' and result['error'] is None
+            assert result['detail']['audit_durability'] == 'DEGRADED'
+            assert state.audit_outbox_service.status()['pending_count'] > 0
+        if fault == 'seal_transient': assert calls['seal'] == 2
+        if fault == 'after_seal_commit': assert calls['seal'] == 1
+
+    # Prove recovery freed the ACTIVE slot, not merely that staging can be created.
+    issued = await client.post('/api/intake/capabilities', headers={'Authorization': 'Bearer local-admin'})
+    next_headers = {'Origin': ORIGIN, 'X-Drishti-Intake': issued.json()['capability']}
+    following = await client.post('/api/intake/job', json={'name': 'Subsequent assessment'}, headers=next_headers)
+    await stage(client, next_headers, 'candidate', 'next.onnx', model_bytes())
+    await client.post('/api/intake/job/run', headers=next_headers)
+    next_job = (await client.get('/api/intake/job', headers=next_headers)).json()
+    assert next_job['state'] == 'COMPLETE', next_job
+    assert next_job['detail']['lifecycle'] == 'SEALED'
+    assert (await client.get(f"/api/assessments/{following.json()['assessment_id']}/snapshot/verify")).json()['status'] == 'VALID'
+    assert (await client.get('/api/assessments?status=ACTIVE')).json()['total'] == 0

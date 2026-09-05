@@ -98,3 +98,7 @@ Run `make test` for the complete matrix.
 
 The demo prints detector, backend-interaction, and total seconds. Exact time varies by
 evaluator hardware.
+
+## Organization-provided evidence is a separate workflow
+
+`make demo`, `make demo-clean`, and `make demo-live` use controlled evaluator fixtures. They do not test an organization’s model. For real evidence, start the live workstation with intake enabled and use **New Assessment**. See [Organization Assessment](ORGANIZATION_ASSESSMENT.md) for capability generation, ONNX intake, reference/behavioral options, signed evidence and cleanup. Do not expose the admin bearer through frontend configuration.
