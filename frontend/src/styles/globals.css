@@ -63,7 +63,7 @@
 /* Pass-three anchor adjustments. */
 .overview-workspace{padding-top:196px}.report-page .reference-page-header{margin-bottom:17px}.report-page .reference-section{margin-top:22px}
 .graph-layout{margin-left:-80px;width:calc(100% + 80px)}
-.semantic-context{position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden}
+.semantic-context{position:static;display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:24px;padding:14px;border:1px solid var(--line);color:var(--muted);font-size:11px;line-height:1.5;overflow-wrap:anywhere}
 
 /* Final measured pixel corrections. Keep each adjustment route-local. */
 .app-shell:has(.distribution-page){--header:50px}
@@ -112,3 +112,8 @@
   .graph-inspector{width:auto;padding:29px}.graph-nodes{inset:366px 50px 366px 70px}
   .graph-node{width:180px;height:101px;padding:25px 18px}.graph-node small{font-size:14px}.graph-node strong{font-size:0}.graph-node code{font-size:17px}.node-1,.node-4{left:calc(50% - 90px)}.node-3,.node-4,.node-5{top:210px}
 }
+
+/* Keep evaluator evidence visible at every workstation width. */
+.system-page .module-status-reference article{height:auto;min-height:88px}
+.system-page .module-status-reference article>div{display:block;padding-right:80px}
+.system-page .module-status-reference article small{display:block;margin-top:8px;overflow-wrap:anywhere}
