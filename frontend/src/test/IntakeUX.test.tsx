@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { demoScenarios } from '../fixtures/demo';
 import { OverviewPage } from '../pages/OverviewPage';
 import { HistoricalContext } from '../components/ui/Help';
@@ -12,7 +12,7 @@ import { SystemPage } from '../pages/SystemPage';
 import { GraphPage } from '../pages/GraphPage';
 import type { ModuleRun } from '../api/types';
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const summary = demoScenarios.critical;
 it('shows exact backend 48.3 and preserves unavailable', () => {
   const { rerender } = render(<MemoryRouter><OverviewPage summary={{ ...summary, overall: { ...summary.overall, assurance_score: 48.3 } }} /></MemoryRouter>);
@@ -75,4 +75,26 @@ it('draws only actual run membership and finding identities', () => {
   rerender(<GraphPage summary={{ ...summary, assessment_id: 'A' }} findings={[finding]} runs={[{ ...run, assessment_id: 'OTHER' }]} demo={false} />);
   expect(screen.queryByLabelText('Assessment contains module run')).not.toBeInTheDocument();
   expect(screen.queryByLabelText('Module run produced finding')).not.toBeInTheDocument();
+});
+
+it.each(['COMPLETE', 'FAILED'])('shows sealed %s intake evidence and degraded audit delivery', async state => {
+  const file = { role: 'candidate', filename: 'candidate.onnx', size: 5, sha256: 'abc', declared_format: 'onnx' };
+  const staged = { assessment_id: 'RECOVERY-A', state: 'STAGING', phase: 'Staged', files: [file], modules: { model_integrity: 'AWAITING SUBMISSION' }, detail: {}, error: null };
+  const final = { ...staged, state, phase: 'Assessment sealed', modules: { model_integrity: state === 'COMPLETE' ? 'COMPLETE' : 'NOT SUBMITTED' }, detail: { lifecycle: 'SEALED', summary, findings: 0, audit_durability: 'DEGRADED' }, error: state === 'FAILED' ? 'Partial assessment sealed' : null };
+  const replies = [{ ...staged, files: [] }, file, staged, final];
+  vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => ({ ok: true, json: async () => replies.shift() })));
+  const onSelect = vi.fn();
+  render(<MemoryRouter><NewAssessmentPage demo={false} onSelect={onSelect} /></MemoryRouter>);
+  await userEvent.type(screen.getByLabelText('Local intake capability'), 'local-capability');
+  await userEvent.type(screen.getByLabelText('Assessment name'), 'Recovery');
+  await userEvent.upload(screen.getByLabelText('Model · candidate ONNX'), new File(['model'], 'candidate.onnx'));
+  await userEvent.click(screen.getByRole('button', { name: 'STAGE EVIDENCE FOR REVIEW' }));
+  await screen.findByText('Evidence staged. Review identity before execution.');
+  await userEvent.click(screen.getByRole('button', { name: 'RUN INTEGRITY ASSESSMENT' }));
+  expect(await screen.findByText(/Audit durability: DEGRADED/)).toBeVisible();
+  expect(screen.getByText(/Lifecycle: SEALED/)).toBeVisible();
+  if (state === 'FAILED') expect(screen.getByRole('alert')).toHaveTextContent('Partial assessment sealed');
+  else expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'VIEW ASSESSMENT' }));
+  expect(onSelect).toHaveBeenCalledWith('RECOVERY-A');
 });

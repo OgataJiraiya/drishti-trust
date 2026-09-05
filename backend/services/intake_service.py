@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
-import json
+import logging
 import os
 import re
 import secrets
@@ -21,6 +21,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import HTTPException
 
+from backend.database.repository import AssessmentRepository, AssessmentMembershipRepository, AssessmentSnapshotRepository
 from backend.schemas.assessments import AssessmentCreate
 from backend.schemas.intake import IntakeCreate
 from backend.schemas.module_auth import SignedModuleRunSubmission
@@ -33,6 +34,8 @@ MAX_FILE = 32 * 1024 * 1024
 MAX_TOTAL = 128 * 1024 * 1024
 MAX_FILES = 128
 TTL = 1800
+RECOVERY_ATTEMPTS = 3
+logger = logging.getLogger(__name__)
 ROLES = {'candidate': {'.onnx'}, 'reference': {'.onnx'}, 'corpus': {'.npy'},
          'dataset': {'.png', '.jpg', '.jpeg', '.bmp', '.webp'},
          'distribution_reference': {'.png', '.jpg', '.jpeg', '.bmp', '.webp'},
@@ -185,7 +188,7 @@ class IntakeService:
                         job.detail['behavioral'] = behavioral.status.value
                     findings['model_integrity'] = ModelIntegrityRunBuilder(client).map_findings(
                         ModelIntegrityEvidenceBundle(manifest=manifest, comparison=comparison, behavioral=behavioral))
-                    job.modules['model_integrity'] = 'COMPLETE'
+                    job.modules['model_integrity'] = 'AWAITING SUBMISSION'
                 dataset = self.paths(job, 'dataset')
                 if dataset:
                     from modules.data_integrity.analyzer import analyze_dataset
@@ -199,7 +202,7 @@ class IntakeService:
                         raise ValueError('Dataset detector unavailable')
                     findings['dataset_integrity'] = DatasetIntegrityRunBuilder(client).map_findings(report['findings'])
                     job.detail['dataset'] = 'Image-only checks; labels and contributor risk NOT ASSESSED'
-                    job.modules['dataset_integrity'] = 'COMPLETE'
+                    job.modules['dataset_integrity'] = 'AWAITING SUBMISSION'
                 refdata = self.paths(job, 'distribution_reference')
                 curdata = self.paths(job, 'distribution_current')
                 representation = self.paths(job, 'representation')
@@ -229,7 +232,7 @@ class IntakeService:
                         job.modules['distribution_shift'] = 'UNAVAILABLE'
                     else:
                         findings['distribution_shift'] = DistributionShiftRunBuilder(client).map_findings(interpretation)
-                        job.modules['distribution_shift'] = 'COMPLETE'
+                        job.modules['distribution_shift'] = 'AWAITING SUBMISSION'
                 receipts = self.paths(job, 'inference')
                 if receipts:
                     from backend.schemas.inference import VerifyReceiptRequest
@@ -244,7 +247,7 @@ class IntakeService:
                         raise ValueError('Receipt evidence needs an unsupported Finding mapping')
                     findings['inference_integrity'] = [output_tampering_to_common_finding(evidence.receipt.receipt_id, item) for item in verified.findings]
                     job.detail['inference'] = 'Signed receipt verification only; VERIFY != ACCEPT. Replay acceptance NOT ASSESSED.'
-                    job.modules['inference_integrity'] = 'COMPLETE'
+                    job.modules['inference_integrity'] = 'AWAITING SUBMISSION'
                 # Fail closed if any detector accidentally emits a workstation path.
                 for batch in findings.values():
                     for finding in batch:
@@ -252,45 +255,156 @@ class IntakeService:
                             raise ValueError('Detector evidence contains private staging paths')
                 if not findings:
                     raise ValueError('No assessable evidence supplied')
-                with state.session_factory() as session:
-                    job.phase = 'Creating assessment'
-                    state.assessment_service.create(AssessmentCreate(assessment_id=job.assessment_id,
-                        name=job.metadata.name, description=job.metadata.notes or None,
-                        metadata={'pipeline_label': job.metadata.version, 'intake': job.files, 'analysis': job.detail}), session)
-                    job.detail['lifecycle'] = 'DRAFT'
-                    state.assessment_service.activate(job.assessment_id, session)
-                    job.detail['lifecycle'] = 'ACTIVE'
-                    job.phase = 'Authenticating module evidence'
-                    for module, batch in findings.items():
-                        producer = f'{job.assessment_id}-{module}'
-                        key_id = producer + '-key'
-                        key = Ed25519PrivateKey.generate()
-                        pem = key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode('ascii')
-                        session.rollback()
-                        state.producer_service.register_producer(ProducerRegistration(producer_id=producer, display_name='Local intake detector', module=module), session)
-                        session.rollback()
-                        state.producer_service.register_key(producer, ProducerKeyRegistration(key_id=key_id, public_key_pem=pem), session)
-                        run = client.build_run(module=module, assessment_id=job.assessment_id, producer=producer, producer_version='1', findings=batch)
-                        signed = SignedModuleRunSubmission(run=run, key_id=key_id, signature=client.sign_run(run, private_key=key))
-                        authentication = state.module_auth_service.authenticate(signed, session)
-                        session.rollback()
-                        state.integration_service.ingest_run(run, session, RunAuthentication(mode='ED25519',
-                            producer_id=authentication.producer_id, key_id=authentication.key_id, key_fingerprint=authentication.key_fingerprint))
-                    job.phase = 'Computing backend assurance and sealing assessment'
-                    session.rollback()
-                    sealed = state.assessment_service.seal(job.assessment_id, session, state.audit_service)
-                    job.detail['lifecycle'] = sealed.assessment.status
-                    job.detail['findings'] = sealed.snapshot.trusted_finding_count
-                    job.detail['modules_submitted'] = list(findings)
-                    job.detail['summary'] = sealed.snapshot.payload['summary']
-                state.audit_outbox_service.drain_pending()
-                job.phase = 'Assessment sealed'
-                job.state = 'COMPLETE'
+                self._finalize(job, findings, client)
         except Exception:
             # Never expose exception strings: parsers can include local paths and input text.
             job.error = f'{job.phase}: analysis unavailable or backend operation failed. No success was manufactured.'
-            for module in MODULES:
-                if job.modules[module] == 'RUNNING': job.modules[module] = 'FAILED'
+            self._mark_unsubmitted(job)
             job.state = 'FAILED'
         finally:
             self.cleanup(job)
+
+    @staticmethod
+    def _mark_unsubmitted(job):
+        for module, status in job.modules.items():
+            if status == 'RUNNING':
+                job.modules[module] = 'FAILED'
+            elif status == 'AWAITING SUBMISSION':
+                job.modules[module] = 'NOT SUBMITTED'
+            elif status == 'SUBMITTING':
+                # A raised call may already have committed. Recovery must read storage.
+                job.modules[module] = 'SUBMISSION UNKNOWN'
+
+    def _persisted_modules(self, job, session):
+        state = self.app.state
+        runs = [state.integration_service.to_details(record, session)
+                for record in AssessmentMembershipRepository(session).all_runs(job.assessment_id)]
+        if any(not run.authentication.authenticated or
+               run.authentication.request_hash != run.request_hash for run in runs):
+            raise RuntimeError('Intake run authentication is inconsistent')
+        submitted = {run.module.value for run in runs}
+        for module, status in job.modules.items():
+            if module in submitted:
+                job.modules[module] = 'COMPLETE'
+            elif status not in {'NOT PROVIDED', 'UNAVAILABLE', 'FAILED'}:
+                job.modules[module] = 'NOT SUBMITTED'
+        job.detail['modules_submitted'] = [module for module in MODULES if module in submitted]
+        job.detail['runs_submitted'] = [run.run_id for run in runs]
+        return {run.run_id for run in runs}
+
+    def _publish_sealed(self, job, snapshot, expected_runs, session):
+        if self.app.state.assessment_service.verify(job.assessment_id, session).status != 'VALID':
+            raise RuntimeError('Sealed intake snapshot is invalid')
+        persisted = self._persisted_modules(job, session)
+        job.detail['lifecycle'] = 'SEALED'
+        job.detail['snapshot_verification'] = 'VALID'
+        job.detail['findings'] = snapshot.trusted_finding_count
+        job.detail['summary'] = snapshot.payload['summary']
+        if persisted == expected_runs:
+            job.state = 'COMPLETE'
+            job.phase = 'Assessment sealed'
+            job.error = None
+        else:
+            job.state = 'FAILED'
+            job.phase = 'Partial assessment sealed after intake failure'
+            job.error = 'Intake did not submit all requested modules. The persisted evidence subset was sealed; unsubmitted modules add no coverage.'
+
+    def _recover_finalization(self, job, expected_runs):
+        state = self.app.state
+        # Never trust an in-memory "activated" flag: a service may commit then raise.
+        # Each failed attempt rolls back/closes before the next fresh session.
+        for attempt in range(1, RECOVERY_ATTEMPTS + 1):
+            job.detail['recovery_attempts'] = attempt
+            try:
+                with state.session_factory() as session:
+                    try:
+                        assessment = AssessmentRepository(session).get(job.assessment_id)
+                        if assessment is None:
+                            return
+                        job.detail['lifecycle'] = assessment.status
+                        self._persisted_modules(job, session)
+                        if assessment.status == 'DRAFT':
+                            return  # Activation never committed; do not activate during recovery.
+                        if assessment.status == 'ACTIVE':
+                            session.rollback()
+                            snapshot = state.assessment_service.seal(
+                                job.assessment_id, session, state.audit_service).snapshot
+                        else:
+                            record = AssessmentSnapshotRepository(session).get(job.assessment_id)
+                            if record is None:
+                                raise RuntimeError('Sealed intake snapshot is missing')
+                            snapshot = state.assessment_service.to_snapshot(record)
+                        self._publish_sealed(job, snapshot, expected_runs, session)
+                        job.detail['finalization_recovery'] = 'SEALED'
+                        return
+                    except Exception:
+                        session.rollback()
+                        raise
+            except Exception as exc:
+                job.detail['recovery_error'] = type(exc).__name__[:64]
+                logger.exception('Intake recovery attempt %s failed for %s', attempt, job.assessment_id)
+        job.detail['finalization_recovery'] = 'UNAVAILABLE'
+        job.error = 'Finalization recovery could not access or seal persisted evidence after bounded retries. Administrative recovery is required; see local backend logs.'
+
+    def _drain_outbox(self, job):
+        # Drain is deliberately outside assessment-success/failure handling. Durable
+        # intents already committed with provenance are retained for later delivery.
+        try:
+            self.app.state.audit_outbox_service.drain_pending()
+            status = self.app.state.audit_outbox_service.status()
+            job.detail['audit_durability'] = 'HEALTHY' if status['healthy'] and not status['pending_count'] else 'DEGRADED'
+        except Exception as exc:
+            job.detail['audit_durability'] = 'DEGRADED'
+            job.detail['audit_durability_error'] = type(exc).__name__[:64]
+            logger.exception('Deferred audit outbox drain failed for intake %s', job.assessment_id)
+
+    def _finalize(self, job, findings, client):
+        state = self.app.state
+        prepared = []
+        try:
+            with state.session_factory() as session:
+                job.phase = 'Preparing authenticated module evidence'
+                for module, batch in findings.items():
+                    producer = f'{job.assessment_id}-{module}'
+                    key_id = producer + '-key'
+                    key = Ed25519PrivateKey.generate()
+                    pem = key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode('ascii')
+                    state.producer_service.register_producer(ProducerRegistration(producer_id=producer, display_name='Local intake detector', module=module), session)
+                    session.rollback()
+                    state.producer_service.register_key(producer, ProducerKeyRegistration(key_id=key_id, public_key_pem=pem), session)
+                    run = client.build_run(module=module, assessment_id=job.assessment_id, producer=producer, producer_version='1', findings=batch)
+                    signed = SignedModuleRunSubmission(run=run, key_id=key_id, signature=client.sign_run(run, private_key=key))
+                    del key  # Only signed public envelopes survive preparation.
+                    state.module_auth_service.authenticate(signed, session)
+                    session.rollback()
+                    prepared.append(signed)
+                job.phase = 'Creating assessment'
+                state.assessment_service.create(AssessmentCreate(assessment_id=job.assessment_id,
+                    name=job.metadata.name, description=job.metadata.notes or None,
+                    metadata={'pipeline_label': job.metadata.version, 'intake': job.files, 'analysis': job.detail}), session)
+                job.detail['lifecycle'] = 'DRAFT'
+                state.assessment_service.activate(job.assessment_id, session)
+                job.detail['lifecycle'] = 'ACTIVE'
+                job.phase = 'Submitting authenticated module evidence'
+                for signed in prepared:
+                    job.modules[signed.run.module.value] = 'SUBMITTING'
+                    # Recheck registry approval immediately before submission. A revocation
+                    # since preparation must still fail closed at the existing trust gate.
+                    authentication = state.module_auth_service.authenticate(signed, session)
+                    session.rollback()
+                    state.integration_service.ingest_run(signed.run, session, RunAuthentication(mode='ED25519',
+                        producer_id=authentication.producer_id, key_id=authentication.key_id, key_fingerprint=authentication.key_fingerprint))
+                    job.modules[signed.run.module.value] = 'COMPLETE'
+                job.phase = 'Computing backend assurance and sealing assessment'
+                session.rollback()
+                sealed = state.assessment_service.seal(job.assessment_id, session, state.audit_service)
+                self._publish_sealed(job, sealed.snapshot, {item.run.run_id for item in prepared}, session)
+        except Exception as exc:
+            logger.exception('Intake finalization failed for %s', job.assessment_id)
+            job.detail['finalization_error'] = type(exc).__name__[:64]
+            job.detail['failure_stage'] = job.phase
+            job.error = f'{job.phase}: backend finalization failed.'
+            job.state = 'FAILED'
+            self._mark_unsubmitted(job)
+            self._recover_finalization(job, {item.run.run_id for item in prepared})
+        self._drain_outbox(job)
