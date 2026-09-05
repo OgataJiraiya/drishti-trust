@@ -1,103 +1,125 @@
-# DRISHTI-TRUST
+# DRISHTI
 
-**SIH 2026 – Problem Statement 26228**  
-Trustworthy Computer Vision Integrity Assurance for Data, Models and Inference Outputs in Multi-Contributor Pipelines.
+DRISHTI is a local, air-gap-ready integrity-assurance workstation for computer-vision
+data, models, inference outputs, and deployment distribution evidence. It combines
+bounded heuristic detectors with authenticated provenance, backend-owned assurance
+scoring, a tamper-evident audit chain, immutable assessment snapshots, and a read-only
+analyst UI.
 
-Organization: **Ministry of Defence (MoD) / Indian Army (DGIS)**
+DRISHTI provides evidence and integrity assurance. It does not prove that a model is
+safe, guarantee the absence of backdoors, or formally verify detector correctness.
+Cryptographic authentication proves producer identity and exact submitted bytes—not
+that a detector's conclusion is correct. No findings does not mean safe.
 
-DRISHTI-TRUST is an offline, air-gapped assurance framework for computer-vision pipelines. The project combines training-data integrity, model integrity, inference provenance, distribution-shift analysis, analyst-facing evidence, and a tamper-evident audit trail.
+## Architecture
 
-## Team modules
-
-| Branch | Area | Primary responsibility |
-|---|---|---|
-| `feat/data-integrity` | Data Integrity | label issues, duplicates, OOD, trigger/anomaly evidence, contributor risk |
-| `feat/model-integrity` | Model Integrity | behavioural fingerprinting, backdoor/anomaly assessment, model evidence |
-| `feat/security-backend` | Security / Provenance | signed inference receipts, replay/tamper/substitution detection, evidence API, audit chain |
-| `feat/drift-ui` | Distribution Shift + UI | drift assessment, analyst dashboard, final visualization/integration |
-
-`main` is the stable integration branch. Do not develop directly on `main`.
-
-## Shared Finding Schema v1
-
-Every module must emit findings using this frozen outer contract:
-
-```json
-{
-  "finding_id": "F-DATA-001",
-  "module": "dataset_integrity",
-  "asset_type": "sample",
-  "asset_id": "sample:img_0042",
-  "category": "NEAR_DUPLICATE",
-  "severity": "HIGH",
-  "confidence": 0.91,
-  "reason": "Sample is near-identical to 37 other samples.",
-  "evidence": [
-    "phash_distance=3",
-    "cluster_id=17"
-  ],
-  "recommendation": "REVIEW",
-  "limitations": [
-    "Similarity heuristic; visually similar legitimate images may be flagged."
-  ]
-}
+```mermaid
+flowchart LR
+  D[Dataset Integrity] -->|signed ModuleRun| B[Trust Backend]
+  M[Model Integrity] -->|signed ModuleRun| B
+  I[Inference Integrity] -->|signed ModuleRun| B
+  S[Distribution Shift] -->|signed ModuleRun| B
+  B --> A[Backend scoring, disposition, audit and seal]
+  A --> U[Read-only Analyst UI]
 ```
 
-Official module values:
+All modules emit the frozen 11-field Finding Schema v1. The backend alone calculates
+module scores, assessment coverage, system assurance, disposition, and lifecycle.
+Distribution analysis does not produce a global drift score. The frontend performs no
+assurance or disposition calculation.
 
-- `dataset_integrity`
-- `model_integrity`
-- `inference_integrity`
-- `distribution_shift`
+An authenticated module run may contain zero findings. Its signed run proves execution,
+but the module remains `UNKNOWN`, has no score, and contributes zero coverage. DRISHTI
+does not manufacture a PASS finding.
 
-Severity: `INFO`, `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`  
-Recommendation: `ACCEPT`, `REVIEW`, `QUARANTINE`, `REJECT`
+## Prerequisites
 
-The contract is documented in `docs/INTEGRATION_CONTRACT.md` and `shared/schemas/`.
+- Linux x86-64 (validated on Kali Linux; CI uses Ubuntu)
+- Python 3.11–3.14 with `venv`
+- Node.js 22 or newer and npm 10 or newer
+- POSIX process controls and Linux `resource`/`RLIMIT` semantics for bounded ONNX workers
 
-## Repository layout
+Windows and macOS worker-resource behavior have not been validated.
 
-```text
-drishti-trust/
-├── backend/                     # shared backend / API integration
-├── modules/
-│   ├── data_integrity/
-│   ├── model_integrity/
-│   ├── inference_integrity/
-│   └── distribution_shift/
-├── frontend/                    # analyst-facing dashboard
-├── shared/
-│   └── schemas/                 # frozen cross-module contracts
-├── docs/                        # architecture and integration notes
-├── scripts/                     # reproducible local/demo scripts
-├── tests/                       # cross-module/integration tests
-└── .github/                     # PR and issue templates
+## Quick start
+
+The canonical evaluator setup is:
+
+```bash
+git clone --branch feat/full-system-integration git@github.com:OgataJiraiya/drishti-trust.git
+cd drishti-trust
+make setup
+make demo
 ```
 
-## Team workflow
+`make setup` creates `.venv`, installs the declared Python dependencies, and performs a
+locked `npm ci`. It never modifies system Python. `make demo` runs the bounded concern
+scenario against an automatically created loopback backend and temporary database/keys.
+No external model, API, telemetry, or cloud service is contacted.
 
-1. Clone the repository.
-2. Checkout your assigned feature branch.
-3. Pull before starting work.
-4. Commit small, understandable changes.
-5. Push only to your feature branch.
-6. Open a pull request into `main` when a coherent feature is ready.
-7. Another teammate reviews the PR before merge.
-8. Never commit keys, datasets, generated databases, large model artifacts, `.env` files, or secrets.
+Run the zero-finding semantic scenario separately with `make demo-clean`.
 
-See `CONTRIBUTING.md` and `docs/TEAM_WORKFLOW.md` before starting.
+## Start the workstation
 
-## Core design principles
+Terminal 1:
 
-- Offline / air-gapped runtime
-- No cloud or external API dependency
-- Unknown is never silently treated as safe
-- Authenticity is not the same as trustworthiness
-- Explain every flag with evidence, confidence, limitation, and recommended action
-- Use standard cryptography; never invent cryptographic primitives
-- Preserve model/data formats without unsafe deserialization where verification only requires hashing
-- Keep the audit trail tamper-evident and limitations explicit
+```bash
+export DRISHTI_ADMIN_BEARER_TOKEN='choose-a-local-runtime-secret'
+export DRISHTI_DATA_DIR="$PWD/runtime/data"
+export DRISHTI_KEY_DIR="$PWD/runtime/keys"
+export DRISHTI_PORT=8000
+make backend
+```
 
-## Deadline
+Terminal 2 — seed the already-running backend with a real sealed concern assessment for
+the live UI:
 
-Target integrated working demo: **15 September 2026**.
+```bash
+export DRISHTI_ADMIN_BEARER_TOKEN='choose-a-local-runtime-secret'
+export DRISHTI_API_URL=http://127.0.0.1:8000
+make demo-live
+```
+
+The command prints the new assessment ID. It runs the same real four-module detector and
+signed-ModuleRun flow as `make demo`, but persists the resulting assessment in the live
+backend instead of deleting temporary backend state.
+
+Terminal 3:
+
+```bash
+export VITE_DRISHTI_API_URL=http://127.0.0.1:8000
+make frontend
+```
+
+Open `http://127.0.0.1:5173`, select the assessment ID printed by `make demo-live`, and
+inspect the workstation. Live mode is explicit for this command. The backend permits
+browser reads only from loopback origins. Use the same loopback port for
+`DRISHTI_API_URL` and `VITE_DRISHTI_API_URL` when changing the backend port.
+
+An absent database initializes automatically through SQLAlchemy `create_all`. Receipt
+and checkpoint Ed25519 keys are generated into `DRISHTI_KEY_DIR`; demo module keys are
+ephemeral and remain inside the demo process. Rerunning `make demo` is the safe isolated
+reset: each invocation uses and removes a new temporary directory. There is no generic
+database wipe command.
+
+## Validation
+
+Run `make test`. Independent suites can be run with `.venv/bin/python -m pytest -q`
+against `backend/tests`, `tests/model_integrity`, `tests/distribution_shift`, or
+`tests/data_integrity`. See [the evaluator demo runbook](docs/DEMO_RUNBOOK.md).
+
+## Trust boundaries and non-guarantees
+
+- `VERIFY != ACCEPT`; receipt verification is read-only while acceptance consumes replay state.
+- Signature validity is not behavioral or model safety.
+- Filename is not identity; digest identity is not behavioral safety or authenticity.
+- `UNKNOWN != SAFE`; no findings is neither safety nor a completed assessment lifecycle.
+- Complete coverage is not safety.
+- Finding confidence is evidence confidence, not attack probability.
+- Finding recommendation is not system disposition.
+- Distribution findings do not infer maliciousness, cause, performance loss, or safety.
+
+Known limitations include heuristic detectors/scoring, bearer-token MVP access control,
+`create_all` rather than migrations, no trusted timestamp/HSM, checkpoint-key compromise,
+total database destruction, and the need to pin clean-tail checkpoints externally. See
+[full-system integration](docs/FULL_SYSTEM_INTEGRATION.md) for details.

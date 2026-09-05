@@ -1,0 +1,261 @@
+"""SQLAlchemy storage models for the first provenance vertical slice."""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class InferenceReceiptRecord(Base):
+    __tablename__ = "inference_receipts"
+
+    receipt_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    receipt_json: Mapped[str] = mapped_column(Text, nullable=False)
+    receipt_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, unique=True, index=True, nullable=False)
+    nonce: Mapped[str] = mapped_column(String(256), unique=True, index=True, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    signature: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class AcceptedInferenceRecord(Base):
+    """Replay state, deliberately separate from receipt archival storage."""
+
+    __tablename__ = "accepted_inferences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    receipt_id: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    receipt_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    nonce: Mapped[str] = mapped_column(String(256), unique=True, index=True, nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, unique=True, index=True, nullable=False)
+    receipt_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class RegisteredModelRecord(Base):
+    """Approved byte-level model identity; artifacts are never deserialized."""
+
+    __tablename__ = "registered_models"
+
+    model_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    original_filename: Mapped[str | None] = mapped_column(String(512))
+    expected_sha256: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    artifact_size_bytes: Mapped[int | None] = mapped_column(Integer)
+    declared_format: Mapped[str | None] = mapped_column(String(64))
+    version: Mapped[str | None] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(16), index=True, nullable=False, default="APPROVED")
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    registration_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
+
+
+class AuditLogRecord(Base):
+    """Append-only application audit hash-chain record."""
+
+    __tablename__ = "audit_log"
+
+    audit_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    sequence: Mapped[int] = mapped_column(Integer, unique=True, index=True, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    asset_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    asset_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    previous_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    current_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+
+
+class AuditOutboxRecord(Base):
+    """Immutable durable audit intent, delivered atomically with its audit record."""
+
+    __tablename__ = "audit_outbox"
+
+    outbox_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_key: Mapped[str] = mapped_column(String(256), unique=True, index=True, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    asset_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    asset_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), index=True, nullable=False, default="PENDING")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_audit_id: Mapped[str | None] = mapped_column(String(32), unique=True)
+
+
+class AuditOutboxDeliveryRecord(Base):
+    """Additive one-to-one linkage, avoiding alteration of the legacy audit table."""
+
+    __tablename__ = "audit_outbox_deliveries"
+    outbox_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("audit_outbox.outbox_id"), primary_key=True
+    )
+    audit_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("audit_log.audit_id"), unique=True, nullable=False
+    )
+
+
+class AuditCheckpointRecord(Base):
+    __tablename__ = "audit_checkpoints"
+
+    checkpoint_id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    audit_sequence: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    audit_record_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    audit_record_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    checkpoint_payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    checkpoint_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    signature: Mapped[str] = mapped_column(Text, nullable=False)
+    signing_key_fingerprint: Mapped[str] = mapped_column(String(80), nullable=False)
+    previous_checkpoint_hash: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class FindingRecord(Base):
+    """Immutable persisted copy of the frozen cross-team Finding JSON."""
+
+    __tablename__ = "findings"
+
+    finding_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    module: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    asset_type: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    asset_id: Mapped[str] = mapped_column(String(256), index=True, nullable=False)
+    category: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
+    confidence: Mapped[float] = mapped_column(nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False)
+    recommendation: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
+    limitations_json: Mapped[str] = mapped_column(Text, nullable=False)
+    finding_json: Mapped[str] = mapped_column(Text, nullable=False)
+    ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class ModuleRunRecord(Base):
+    """Immutable integration metadata kept outside frozen Finding Schema v1."""
+
+    __tablename__ = "module_runs"
+
+    run_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    module: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    producer: Mapped[str] = mapped_column(String(128), nullable=False)
+    producer_version: Mapped[str | None] = mapped_column(String(64))
+    request_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    request_json: Mapped[str] = mapped_column(Text, nullable=False)
+    finding_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    existing_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    finding_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class ModuleRunAuthenticationRecord(Base):
+    """Durable run trust provenance, kept outside Finding Schema v1."""
+
+    __tablename__ = "module_run_authentication"
+
+    run_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("module_runs.run_id"), primary_key=True
+    )
+    authentication_mode: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    producer_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    key_id: Mapped[str | None] = mapped_column(String(128))
+    key_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    request_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    authenticated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class AssessmentRecord(Base):
+    """Lifecycle container for immutable sets of module runs."""
+
+    __tablename__ = "assessments"
+    __table_args__ = (
+        Index("uq_assessments_one_active", "status", unique=True,
+              sqlite_where=text("status = 'ACTIVE'")),
+    )
+
+    assessment_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), index=True, nullable=False, default="DRAFT")
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sealed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AssessmentRunMembershipRecord(Base):
+    """Immutable one-assessment ownership of a module run."""
+
+    __tablename__ = "assessment_run_memberships"
+
+    run_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("module_runs.run_id"), primary_key=True
+    )
+    assessment_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("assessments.assessment_id"), index=True, nullable=False
+    )
+    attached_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class AssessmentSnapshotRecord(Base):
+    """Canonical immutable authenticated summary produced exactly once at seal."""
+
+    __tablename__ = "assessment_snapshots"
+
+    assessment_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("assessments.assessment_id"), primary_key=True
+    )
+    schema_version: Mapped[str] = mapped_column(String(16), nullable=False, default="1")
+    summary_json: Mapped[str] = mapped_column(Text, nullable=False)
+    summary_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    run_set_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    run_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    trusted_finding_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    excluded_untrusted_finding_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ModuleProducerRecord(Base):
+    """Approved identity allowed to submit findings for exactly one module."""
+
+    __tablename__ = "module_producers"
+
+    producer_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    module: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), index=True, nullable=False, default="APPROVED")
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+
+class ProducerKeyRecord(Base):
+    """Public Ed25519 verification key; producer private keys are never stored."""
+
+    __tablename__ = "producer_keys"
+
+    key_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    producer_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("module_producers.producer_id"), index=True, nullable=False
+    )
+    public_key_pem: Mapped[str] = mapped_column(Text, nullable=False)
+    public_key_fingerprint: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), index=True, nullable=False, default="ACTIVE")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

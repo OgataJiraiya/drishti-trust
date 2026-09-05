@@ -1,0 +1,10 @@
+import{getJson,isRecord}from'./client';import type{EvidenceList,Finding,RunList,Snapshot,SnapshotVerification}from'./types';
+const isFinding=(v:unknown):v is Finding=>isRecord(v)&&typeof v.finding_id==='string'&&typeof v.category==='string'&&typeof v.confidence==='number'&&Array.isArray(v.evidence)&&Array.isArray(v.limitations);
+const isEvidenceList=(v:unknown):v is EvidenceList=>isRecord(v)&&typeof v.total==='number'&&Array.isArray(v.items)&&v.items.every(isFinding);
+const isRunList=(v:unknown):v is RunList=>isRecord(v)&&typeof v.total==='number'&&Array.isArray(v.items)&&v.items.every(x=>isRecord(x)&&typeof x.run_id==='string'&&isRecord(x.authentication));
+const isSnapshot=(v:unknown):v is Snapshot=>isRecord(v)&&typeof v.assessment_id==='string'&&typeof v.summary_hash==='string'&&typeof v.run_set_hash==='string';
+const isVerification=(v:unknown):v is SnapshotVerification=>isRecord(v)&&typeof v.assessment_id==='string'&&(v.status==='VALID'||v.status==='INVALID');
+export const fetchFindings=()=>getJson('/api/evidence?page=1&page_size=100',isEvidenceList);
+export const fetchRuns=(id:string)=>getJson(`/api/assessments/${encodeURIComponent(id)}/runs?limit=100&offset=0`,isRunList);
+export const fetchSnapshot=(id:string)=>getJson(`/api/assessments/${encodeURIComponent(id)}/snapshot`,isSnapshot);
+export const fetchSnapshotVerification=(id:string)=>getJson(`/api/assessments/${encodeURIComponent(id)}/snapshot/verify`,isVerification);
