@@ -46,7 +46,7 @@ Windows and macOS worker-resource behavior have not been validated.
 The canonical evaluator setup is:
 
 ```bash
-git clone --branch feat/full-system-integration git@github.com:OgataJiraiya/drishti-trust.git
+git clone --branch main git@github.com:OgataJiraiya/drishti-trust.git
 cd drishti-trust
 make setup
 make demo
