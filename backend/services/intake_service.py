@@ -223,9 +223,13 @@ class IntakeService:
                     d3 = representation_pair(representation[0]) if representation else None
                     d4 = prediction_pair(prediction[0]) if prediction else None
                     interpretation = MultiSignalDriftInterpreter().interpret(report, d3, d4)
-                    findings['distribution_shift'] = DistributionShiftRunBuilder(client).map_findings(interpretation)
                     job.detail['distribution'] = {'image_statistical': report.status.value if report else 'NOT PROVIDED', 'representation': d3.status.value if d3 else 'NOT PROVIDED', 'prediction_output': d4.status.value if d4 else 'NOT PROVIDED', 'interpretation': interpretation.pattern_code.value}
-                    job.modules['distribution_shift'] = 'COMPLETE'
+                    if interpretation.status.value == 'UNAVAILABLE':
+                        # No usable comparison must not create a submitted module or coverage.
+                        job.modules['distribution_shift'] = 'UNAVAILABLE'
+                    else:
+                        findings['distribution_shift'] = DistributionShiftRunBuilder(client).map_findings(interpretation)
+                        job.modules['distribution_shift'] = 'COMPLETE'
                 receipts = self.paths(job, 'inference')
                 if receipts:
                     from backend.schemas.inference import VerifyReceiptRequest

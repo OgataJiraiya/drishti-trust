@@ -193,3 +193,20 @@ async def test_missing_distribution_reference_does_not_submit_run(intake):
     job = (await client.get('/api/intake/job', headers=headers)).json()
     assert job['state'] == 'COMPLETE'
     assert job['modules']['distribution_shift'] == 'NOT PROVIDED'
+
+
+@pytest.mark.anyio
+async def test_insufficient_distribution_support_does_not_create_coverage(intake):
+    _, client, headers = intake
+    await client.post('/api/intake/job', json={'name': 'Insufficient windows'}, headers=headers)
+    await stage(client, headers, 'candidate', 'candidate.onnx', model_bytes())
+    stream = io.BytesIO()
+    Image.new('RGB', (8, 8), 'black').save(stream, format='PNG')
+    for role in ['distribution_reference', 'distribution_current']:
+        await stage(client, headers, role, 'sample.png', stream.getvalue())
+    await client.post('/api/intake/job/run', headers=headers)
+    job = (await client.get('/api/intake/job', headers=headers)).json()
+    assert job['state'] == 'COMPLETE'
+    assert job['modules']['distribution_shift'] == 'UNAVAILABLE'
+    assert job['detail']['modules_submitted'] == ['model_integrity']
+    assert job['detail']['summary']['modules']['distribution_shift']['availability'] == 'UNKNOWN'
