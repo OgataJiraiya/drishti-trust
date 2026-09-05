@@ -67,24 +67,40 @@ Terminal 1:
 export DRISHTI_ADMIN_BEARER_TOKEN='choose-a-local-runtime-secret'
 export DRISHTI_DATA_DIR="$PWD/runtime/data"
 export DRISHTI_KEY_DIR="$PWD/runtime/keys"
+export DRISHTI_PORT=8000
 make backend
 ```
 
-Terminal 2:
+Terminal 2 — seed the already-running backend with a real sealed concern assessment for
+the live UI:
 
 ```bash
+export DRISHTI_ADMIN_BEARER_TOKEN='choose-a-local-runtime-secret'
+export DRISHTI_API_URL=http://127.0.0.1:8000
+make demo-live
+```
+
+The command prints the new assessment ID. It runs the same real four-module detector and
+signed-ModuleRun flow as `make demo`, but persists the resulting assessment in the live
+backend instead of deleting temporary backend state.
+
+Terminal 3:
+
+```bash
+export VITE_DRISHTI_API_URL=http://127.0.0.1:8000
 make frontend
 ```
 
-Open `http://127.0.0.1:5173`. Live mode is explicit for this command. The backend
-permits browser reads only from loopback origins. Set `VITE_DRISHTI_API_URL` when using
-another local backend port.
+Open `http://127.0.0.1:5173`, select the assessment ID printed by `make demo-live`, and
+inspect the workstation. Live mode is explicit for this command. The backend permits
+browser reads only from loopback origins. Use the same loopback port for
+`DRISHTI_API_URL` and `VITE_DRISHTI_API_URL` when changing the backend port.
 
 An absent database initializes automatically through SQLAlchemy `create_all`. Receipt
 and checkpoint Ed25519 keys are generated into `DRISHTI_KEY_DIR`; demo module keys are
-ephemeral and remain inside the demo process. Rerunning `make demo` is the safe reset:
-each invocation uses and removes a new temporary directory. There is no generic database
-wipe command.
+ephemeral and remain inside the demo process. Rerunning `make demo` is the safe isolated
+reset: each invocation uses and removes a new temporary directory. There is no generic
+database wipe command.
 
 ## Validation
 
