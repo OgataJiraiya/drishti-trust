@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Offline, bounded DRISHTI four-module demonstration against a temporary backend."""
+"""Offline, bounded DRISHTI four-module demonstration.
+
+By default the demo starts an isolated temporary backend and removes all runtime state at
+exit. Pass --backend-url to submit the same authenticated assessment into an already
+running local backend so the live analyst UI can inspect the resulting historical
+assessment.
+"""
 from __future__ import annotations
 
 import argparse
@@ -13,7 +19,6 @@ import tempfile
 import time
 from time import perf_counter
 
-import httpx
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -24,7 +29,6 @@ from drishti_sdk import DrishtiClient, FullAssessmentOrchestrator
 from modules.data_integrity.adapter import DatasetIntegrityRunBuilder
 from modules.data_integrity.analyzer import analyze_dataset
 from modules.distribution_shift.demo import build_interpretation_for_scenario
-from modules.distribution_shift.findings import DistributionShiftFindingMapper
 from modules.distribution_shift.integration import DistributionShiftRunBuilder
 from modules.model_integrity.demo import ScenarioKind, create_static_specimen
 from modules.model_integrity.findings import ModelIntegrityEvidenceBundle
@@ -45,7 +49,7 @@ def _wait(client: DrishtiClient) -> None:
                 return
         except Exception:
             time.sleep(0.05)
-    raise RuntimeError("temporary backend did not start")
+    raise RuntimeError("backend did not become healthy")
 
 
 def _module_findings(client: DrishtiClient, root: Path, concern: bool):
@@ -87,13 +91,59 @@ def _module_findings(client: DrishtiClient, root: Path, concern: bool):
         "inference_integrity": inference, "distribution_shift": distribution}
 
 
+def _run_assessment(client: DrishtiClient, root: Path, scenario: str, assessment_id: str,
+                    total_started: float) -> None:
+    _wait(client)
+    detector_started = perf_counter()
+    findings = _module_findings(client, root, scenario == "concern")
+    detector_seconds = perf_counter() - detector_started
+    backend_started = perf_counter()
+    result = FullAssessmentOrchestrator(client).run(assessment_id, findings)
+    backend_seconds = perf_counter() - backend_started
+    print(f"Assessment: {assessment_id} ({scenario})")
+    print("Assessment lifecycle: DRAFT -> ACTIVE -> SEALED")
+    for module, details in result.runs.items():
+        stored = details["stored"]
+        print(f"  {module}: findings={stored['total_findings']} authenticated="
+              f"{stored['authentication']['authenticated']}")
+    overall = result.summary["overall"]
+    print(f"Backend coverage: {overall['assessment_coverage']}")
+    print(f"Backend assurance: {overall['assurance_score']} ({overall['score_status']})")
+    print(f"Backend disposition: {overall['disposition']}")
+    print(f"Audit: {result.audit['status']}")
+    print(f"Lifecycle: {result.lifecycle}")
+    print(f"Snapshot: {result.snapshot['status']}")
+    print(f"Checkpoint: {result.checkpoint['status']}")
+    print("Security: " + ", ".join(
+        f"{name}={status}" for name, status in sorted(result.security.items())))
+    print(f"Timing: detectors={detector_seconds:.3f}s, backend={backend_seconds:.3f}s, "
+          f"total={perf_counter() - total_started:.3f}s")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the deterministic offline full-system demo")
     parser.add_argument("--scenario", choices=("clean", "concern"), default="concern")
+    parser.add_argument("--backend-url",
+                        help="Use an already running local backend instead of a temporary backend")
+    parser.add_argument("--assessment-id",
+                        help="Explicit assessment ID (otherwise a safe demo ID is generated)")
     args = parser.parse_args()
     total_started = perf_counter()
+
     with tempfile.TemporaryDirectory(prefix="drishti-full-system-") as directory:
         root = Path(directory)
+        if args.backend_url:
+            token = os.environ.get("DRISHTI_ADMIN_BEARER_TOKEN")
+            if not token:
+                parser.error("--backend-url requires DRISHTI_ADMIN_BEARER_TOKEN")
+            assessment_id = args.assessment_id or (
+                f"FULL-{args.scenario.upper()}-{int(time.time())}"
+            )
+            with DrishtiClient(args.backend_url, admin_token=token) as client:
+                _run_assessment(client, root, args.scenario, assessment_id, total_started)
+            print(f"Live UI: select historical assessment {assessment_id}")
+            return 0
+
         port = _free_port()
         token = "DRISHTI-LOCAL-DEMO"
         env = dict(os.environ, DRISHTI_DATA_DIR=str(root / "data"),
@@ -104,33 +154,8 @@ def main() -> int:
             cwd=Path(__file__).resolve().parents[1], env=env)
         try:
             with DrishtiClient(f"http://127.0.0.1:{port}", admin_token=token) as client:
-                _wait(client)
-                assessment_id = f"FULL-{args.scenario.upper()}"
-                detector_started = perf_counter()
-                findings = _module_findings(client, root, args.scenario == "concern")
-                detector_seconds = perf_counter() - detector_started
-                backend_started = perf_counter()
-                result = FullAssessmentOrchestrator(client).run(
-                    assessment_id, findings)
-                backend_seconds = perf_counter() - backend_started
-                print(f"Assessment: {assessment_id} ({args.scenario})")
-                print("Assessment lifecycle: DRAFT -> ACTIVE -> SEALED")
-                for module, details in result.runs.items():
-                    stored = details["stored"]
-                    print(f"  {module}: findings={stored['total_findings']} authenticated="
-                          f"{stored['authentication']['authenticated']}")
-                overall = result.summary["overall"]
-                print(f"Backend coverage: {overall['assessment_coverage']}")
-                print(f"Backend assurance: {overall['assurance_score']} ({overall['score_status']})")
-                print(f"Backend disposition: {overall['disposition']}")
-                print(f"Audit: {result.audit['status']}")
-                print(f"Lifecycle: {result.lifecycle}")
-                print(f"Snapshot: {result.snapshot['status']}")
-                print(f"Checkpoint: {result.checkpoint['status']}")
-                print("Security: " + ", ".join(
-                    f"{name}={status}" for name, status in sorted(result.security.items())))
-                print(f"Timing: detectors={detector_seconds:.3f}s, backend={backend_seconds:.3f}s, "
-                      f"total={perf_counter() - total_started:.3f}s")
+                assessment_id = args.assessment_id or f"FULL-{args.scenario.upper()}"
+                _run_assessment(client, root, args.scenario, assessment_id, total_started)
         finally:
             server.terminate()
             try:
