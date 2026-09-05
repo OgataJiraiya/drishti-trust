@@ -3,7 +3,7 @@ VENV := .venv
 PY := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 
-.PHONY: setup demo demo-clean backend frontend test
+.PHONY: setup demo demo-clean demo-live backend frontend test
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -15,6 +15,10 @@ demo:
 
 demo-clean:
 	$(PY) scripts/demo_full_system.py --scenario clean
+
+demo-live:
+	@test -n "$(DRISHTI_ADMIN_BEARER_TOKEN)" || (echo "DRISHTI_ADMIN_BEARER_TOKEN is required" >&2; exit 2)
+	$(PY) scripts/demo_full_system.py --scenario concern --backend-url "$${DRISHTI_API_URL:-http://127.0.0.1:$${DRISHTI_PORT:-8000}}"
 
 backend:
 	@test -n "$(DRISHTI_ADMIN_BEARER_TOKEN)" || (echo "DRISHTI_ADMIN_BEARER_TOKEN is required" >&2; exit 2)
