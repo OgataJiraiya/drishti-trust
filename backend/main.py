@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import asyncio
+import contextlib
+import re
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -11,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api import (
     assessments,
+    intake,
     audit,
     audit_durability,
     evidence,
@@ -45,10 +49,22 @@ async def lifespan(app: FastAPI):
     except Exception:
         # Keep the application observable; health/status reports degraded state.
         pass
-    yield
+    async def reap_intake():
+        while True:
+            await asyncio.sleep(30)
+            app.state.intake_service.reap()
+    task = asyncio.create_task(reap_intake())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 def create_app(settings: Settings = default_settings) -> FastAPI:
+    if settings.intake_origin and not re.fullmatch(r"http://(127\.0\.0\.1|localhost):[0-9]{1,5}", settings.intake_origin):
+        raise ValueError("Intake origin must be an exact loopback HTTP origin")
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.key_dir.mkdir(parents=True, exist_ok=True)
     private_path = settings.key_dir / "receipt_signing.private.pem"
@@ -88,6 +104,10 @@ def create_app(settings: Settings = default_settings) -> FastAPI:
         allow_methods=["GET"],
         allow_headers=["Accept"],
     )
+    if settings.intake_origin:
+        # Separate CORS policy scoped only to intake paths; other routes remain GET-only.
+        from backend.api.intake_cors import IntakeCORSMiddleware
+        app.add_middleware(IntakeCORSMiddleware, origin=settings.intake_origin)
     app.state.engine = engine
     app.state.settings = settings
     app.state.session_factory = session_factory(engine)
@@ -134,6 +154,9 @@ def create_app(settings: Settings = default_settings) -> FastAPI:
                 "errors_returned": len(bounded),
             },
         )
+    from backend.services.intake_service import IntakeService
+    app.state.intake_service = IntakeService(app)
+    app.include_router(intake.router)
     app.include_router(health.router)
     app.include_router(inference.router)
     app.include_router(models.router)
