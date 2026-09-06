@@ -126,14 +126,56 @@ were kept outside version control. Reports were rechecked after the long-ID layo
 Distribution displays unavailable detailed charts instead of invented chart values; graph
 links reflect assessment/run/Finding membership and omit unsupported relationships.
 
-### Exact real-model blocker
+### Exact real-model closure validation
 
-The three requested MNIST files were absent from the supplied location. Therefore
-Parameter193 metadata, storage representation and the exact baseline/+0.001/NaN CLI
-results could not be measured. No substitute was labeled MNIST and no private model was
-modified. Equivalent controlled ONNX regressions pass, including HIGH PARAMETER_NAN,
-complete parameter coverage and genuine structure changes, but do not satisfy these
-exact-file release gates. Release remains blocked pending the requested artifacts.
+The local external MNIST-12 regression artifacts were verified during closure. They
+are not committed to the repository. The baseline identity is:
+
+- SHA-256: `5c688690f8bacf667d4c2074af5ad0646ca328d7ab03eccf944a65b320171bdd`
+- Size: **26143 bytes**
+
+Parameter193 metadata and storage are identical across the baseline, +0.001 candidate
+and NaN candidate:
+
+| Field | All three artifacts |
+|---|---|
+| Name | Parameter193 |
+| Dtype | FLOAT |
+| Shape | [16, 4, 4, 10] |
+| Element count | 2560 |
+| Raw-data byte length | 0 |
+| External data | [] |
+| Data location | 0 |
+| Raw data present / length | false / 0 |
+| float_data count | 2560 |
+| double_data / int32_data / int64_data counts | 0 / 0 / 0 |
+
+| Real-model gate | Result |
+|---|---|
+| Baseline inspection | PASS; COMPLETE parameter analysis |
+| +0.001 comparison | Artifact CHANGED; Structure SAME; Metadata SAME; Values CHANGED |
+| +0.001 exact changed tensor list | ["Parameter193"] |
+| NaN comparison | Artifact CHANGED; Structure SAME; Metadata SAME; Values CHANGED |
+| NaN exact changed tensor list | ["Parameter193"] |
+| NaN inspection | PARAMETER_NAN HIGH; tensor Parameter193 |
+| NaN parameter analysis | COMPLETE; 8/8 tensors and 5998/5998 elements; 100% coverage |
+
+The pretty CLI and programmatic BaselineComparisonService checks both passed.
+No STRUCTURAL_FINGERPRINT_CHANGED was emitted for either value-only mutation.
+All three structural hashes are equal, and all three parameter-metadata hashes are
+equal. Each candidate's parameter-value hash differs from the baseline's hash.
+Parameter metadata definitions, value hashing and HIGH NaN severity remain unchanged.
+
+The full local regression matrix above was rerun during closure with the same passing
+counts. Candidate-only and controlled full-evidence intake, demo, demo-clean and
+demo-live were rerun successfully. Dependency manifests are unchanged; no retrieval
+package, external artifact, Hugging Face cache/configuration or credential was committed.
+
+Closure release gates: Real MNIST +0.001 **PASS**; Real MNIST NaN **PASS**;
+PARAMETER_NAN HIGH detection **PASS**; genuine structural mutation **PASS**.
+Remaining release blockers: **NONE**. Final release status: **READY FOR REVIEW**
+after the closure regression matrix, hosted CI on the closure SHA and final read-only
+review pass. The PR must not be merged as part of this task.
 
 ## Residual limitations and design boundary
 
@@ -149,5 +191,5 @@ create_all database initialization remain. Process crashes before returned recov
 persistent storage failures may require administrative recovery. No trusted timestamp,
 HSM, full production RBAC or general concurrent-service resource guarantee is claimed.
 Large evidence listings may be truncated and are labeled accordingly. External dependency
-internals were not independently audited. Missing real MNIST artifacts are an explicit
-release blocker, independent of automated CI success.
+internals were not independently audited. These residual limitations are unchanged
+by the successful real-model closure validation.
