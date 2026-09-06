@@ -98,3 +98,25 @@ it.each(['COMPLETE', 'FAILED'])('shows sealed %s intake evidence and degraded au
   await userEvent.click(screen.getByRole('button', { name: 'VIEW ASSESSMENT' }));
   expect(onSelect).toHaveBeenCalledWith('RECOVERY-A');
 });
+
+it('distinguishes authenticated zero-Finding execution from no submission without changing assurance', () => {
+  const zero = structuredClone(demoScenarios.unknown);
+  zero.assessment_id = 'ZERO';
+  const run: ModuleRun = { run_id: 'ZERO-RUN', assessment_id: 'ZERO', module: 'model_integrity', producer: 'P', producer_version: '1', request_hash: '', total_findings: 0, created_findings: 0, existing_findings: 0, finding_ids: [], created_at: '', authentication: { authenticated: true, mode: 'ED25519', producer_id: 'P', key_id: 'K', key_fingerprint: '', request_hash: '', authenticated_at: '' } };
+  const { rerender } = render(<MemoryRouter><OverviewPage summary={zero} runs={[run]} executionAvailable /></MemoryRouter>);
+  expect(screen.getByText('Execution: Authenticated assessment completed')).toBeVisible();
+  expect(screen.getByText(/Absence of Findings does not establish model safety/)).toBeVisible();
+  expect(screen.getByRole('img', { name: 'Assurance score unavailable' })).toBeVisible();
+  expect(screen.getByText('Coverage 0%')).toBeVisible();
+  expect(zero.modules.model_integrity.status).toBe('UNKNOWN');
+  expect(zero.modules.model_integrity.finding_count).toBe(0);
+  expect(zero.overall.assurance_score).toBeNull();
+  rerender(<MemoryRouter><OverviewPage summary={zero} runs={[]} executionAvailable /></MemoryRouter>);
+  expect(screen.queryByText('Execution: Authenticated assessment completed')).not.toBeInTheDocument();
+  expect(screen.getAllByText('Execution: NOT SUBMITTED')).toHaveLength(4);
+  rerender(<MemoryRouter><OverviewPage summary={zero} runs={[{ ...run, assessment_id: 'OTHER' }]} /></MemoryRouter>);
+  expect(screen.queryByText('Execution: Authenticated assessment completed')).not.toBeInTheDocument();
+  expect(screen.getAllByText('Execution: Submission evidence unavailable')).toHaveLength(4);
+  rerender(<MemoryRouter><OverviewPage summary={zero} runs={[{ ...run, authentication: { ...run.authentication, authenticated: false } }]} executionAvailable /></MemoryRouter>);
+  expect(screen.queryByText('Execution: Authenticated assessment completed')).not.toBeInTheDocument();
+});
