@@ -249,3 +249,13 @@ def test_genuine_structure_changes_remain_visible(tmp_path, mutation):
     result = BaselineComparisonService().compare(a, b)
     assert result.structure.state == 'CHANGED'
     assert 'STRUCTURAL_FINGERPRINT_CHANGED' in result.structure.codes
+
+
+def test_zero_element_initializer_has_no_channel_reduction_failure(tmp_path):
+    path = tmp_path / 'empty-tensor.onnx'
+    model = make_model(path)
+    model.graph.initializer[0].CopyFrom(helper.make_tensor('weight', TensorProto.FLOAT, [2, 0], []))
+    onnx.save_model(model, path)
+    result = ModelIntegrityService().inspect(path)
+    assert result.parameter_analysis.status == 'COMPLETE'
+    assert result.parameter_analysis.coverage.analyzed_parameter_tensors == 2

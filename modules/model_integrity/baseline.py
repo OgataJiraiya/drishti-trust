@@ -25,7 +25,7 @@ from .behavioral_models import (
 )
 from .fingerprint import fingerprint
 from .models import AnalysisStatus, ModelManifest
-from .parameter_analysis import tensor_value_commitments
+from .parameter_analysis import ParameterAnalysisLimits, tensor_value_commitments
 from .service import ModelIntegrityService
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -177,24 +177,32 @@ def _structure(reference: ModelManifest, candidate: ModelManifest,
                                inputs, outputs, initializers)
 
 
-def _tensor_commitments(path: Path | str, manifest: ModelManifest) -> list[dict[str, Any]]:
-    if manifest.artifact.claimed_format != "onnx": return []
+def _tensor_commitments(path: Path | str, manifest: ModelManifest,
+                        parameter_limits: ParameterAnalysisLimits | None = None) -> list[dict[str, Any]] | None:
+    if manifest.artifact.claimed_format != "onnx" or manifest.structure is None: return None
     try:
         import onnx
-        return tensor_value_commitments(onnx.load_model(path, load_external_data=False))
-    except Exception: return []
+        return tensor_value_commitments(onnx.load_model(path, load_external_data=False), parameter_limits)
+    except Exception: return None
 
 
 def _parameters(reference_path: Path | str, candidate_path: Path | str,
                 reference: ModelManifest, candidate: ModelManifest,
-                limits: BaselineComparisonLimits, limitations: list[str]) -> ParameterComparison:
+                limits: BaselineComparisonLimits, limitations: list[str],
+                parameter_limits: ParameterAnalysisLimits | None = None) -> ParameterComparison:
     rfp, cfp = reference.fingerprints, candidate.fingerprints
     metadata = _state(rfp.parameter_metadata_sha256, cfp.parameter_metadata_sha256)
     if rfp.parameter_value_status == AnalysisStatus.COMPLETE \
             and cfp.parameter_value_status == AnalysisStatus.COMPLETE:
         values = _state(rfp.parameter_value_sha256, cfp.parameter_value_sha256)
     else: values = ChangeState.UNAVAILABLE
-    rc = _tensor_commitments(reference_path, reference); cc = _tensor_commitments(candidate_path, candidate)
+    rc = _tensor_commitments(reference_path, reference, parameter_limits)
+    cc = _tensor_commitments(candidate_path, candidate, parameter_limits)
+    if rc is None or cc is None:
+        limitations.append("TENSOR_VALUE_DETAILS_INCOMPARABLE")
+        return ParameterComparison(metadata, values, rfp.parameter_metadata_sha256,
+            cfp.parameter_metadata_sha256, rfp.parameter_value_sha256, cfp.parameter_value_sha256,
+            rfp.parameter_value_status.value, cfp.parameter_value_status.value, [], [], [], [], [])
     duplicate_commitments = (len({item["name"] for item in rc}) != len(rc)
                              or len({item["name"] for item in cc}) != len(cc))
     if duplicate_commitments:
@@ -276,7 +284,7 @@ class BaselineComparisonService:
             _state(reference.artifact.sha256, candidate.artifact.sha256))
         structure = _structure(reference, candidate, self.limits, limitations)
         parameters = _parameters(reference_path, candidate_path, reference, candidate,
-                                 self.limits, limitations)
+                                 self.limits, limitations, self.inspection_service.parameter_limits)
         deltas = _issue_deltas(reference, candidate, self.limits, limitations)
         verified = (expected_reference_sha256 is not None and expected_reference_valid
                     and expected_reference_sha256 == reference.artifact.sha256)
