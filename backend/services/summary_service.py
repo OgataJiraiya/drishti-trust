@@ -274,7 +274,8 @@ class SummaryService:
                 first_broken_audit_id=verification.first_broken_audit_id,
             )
         except Exception:
-            session.rollback()
+            # The caller owns the transaction. In particular, sealing holds a
+            # write reservation that must survive an unavailable audit read.
             return AuditIntegritySummary(status="UNAVAILABLE", records_checked=None, first_broken_audit_id=None)
 
     @staticmethod

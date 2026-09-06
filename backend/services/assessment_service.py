@@ -192,8 +192,10 @@ class AssessmentService:
             current_runs = AssessmentMembershipRepository(session).all_runs(assessment_id)
             auth_repository = ModuleRunAuthenticationRepository(session)
             current_set = []
+            provenance_consistent = True
             for run in current_runs:
                 auth = auth_repository.get(run.run_id)
+                provenance_consistent &= auth is not None and auth.request_hash == run.request_hash
                 current_set.append({
                     "run_id": run.run_id, "request_hash": run.request_hash,
                     "authentication_mode": auth.authentication_mode if auth else "MISSING",
@@ -201,7 +203,8 @@ class AssessmentService:
             current_set.sort(key=lambda item: item["run_id"])
             recomputed_run_set_hash = sha256_json(current_set)
             valid = (
-                recomputed_summary_hash == snapshot.summary_hash
+                provenance_consistent
+                and recomputed_summary_hash == snapshot.summary_hash
                 and payload_run_hash == snapshot.run_set_hash
                 and recomputed_run_set_hash == snapshot.run_set_hash
             )
