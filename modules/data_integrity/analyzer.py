@@ -1,7 +1,6 @@
 """Unified, dataset-agnostic orchestration for data-integrity checks."""
 
 from collections import Counter
-from itertools import combinations
 from pathlib import Path
 from typing import Any
 
@@ -290,8 +289,15 @@ def analyze_dataset(
         skipped_detectors["ood"] = "Disabled by configuration."
 
     # Exact byte duplicates are a stronger statement than their pHash=0 pair.
-    exact_pairs = {tuple(sorted(pair)) for paths in exact_duplicates.values() for pair in combinations(paths, 2)}
-    findings = [finding for finding in findings if not (finding["category"] == "NEAR_DUPLICATE" and tuple(sorted((finding["asset_id"], next((item.split("=", 1)[1] for item in finding["evidence"] if item.startswith("matched_sample=")), "")))) in exact_pairs)]
+    exact_groups = {path: digest for digest, paths in exact_duplicates.items() for path in paths}
+    def redundant_near_duplicate(finding):
+        if finding['category'] != 'NEAR_DUPLICATE':
+            return False
+        matched = next((item.split('=', 1)[1] for item in finding['evidence']
+                        if item.startswith('matched_sample=')), '')
+        group = exact_groups.get(finding['asset_id'])
+        return group is not None and group == exact_groups.get(matched)
+    findings = [finding for finding in findings if not redundant_near_duplicate(finding)]
     _bind_source_evidence(findings, samples, max_identifier_length)
     unbounded_count = len(findings)
     findings = _stable_findings(findings, max_findings)
