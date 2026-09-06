@@ -151,7 +151,12 @@ def inspect_onnx(path: Path, approved_operators: set[str] | None = None) -> tupl
     structure_payload = {
         "format": "onnx", "ir_version": structure.ir_version, "opsets": opsets,
         "inputs": [item.__dict__ for item in inputs], "outputs": [item.__dict__ for item in outputs],
-        "nodes": nodes, "initializers": [item.__dict__ for item in initializers],
+        "nodes": nodes,
+        "initializers": [
+            {"name": item.name, "dtype": item.dtype, "shape": item.shape,
+             "element_count": item.element_count}
+            for item in initializers
+        ],
     }
     parameter_payload = [item.__dict__ for item in initializers]
     return structure, fingerprint(structure_payload), fingerprint(parameter_payload), issues, limitations, model

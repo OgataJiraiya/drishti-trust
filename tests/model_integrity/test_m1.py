@@ -193,3 +193,59 @@ def test_streaming_sha256_is_not_limited_by_onnx_parse_ceiling(tmp_path):
     manifest = ModelIntegrityService(max_onnx_parse_bytes=128).inspect(path)
     assert manifest.artifact.sha256 == sha256_file(path)
     assert manifest.artifact.inspection_level == InspectionLevel.ARTIFACT_ONLY
+
+
+def test_storage_representation_is_metadata_not_structure(tmp_path):
+    from onnx import numpy_helper
+    a, b = tmp_path / 'typed.onnx', tmp_path / 'raw.onnx'
+    model = make_model(a)
+    tensor = model.graph.initializer[0]
+    tensor.CopyFrom(numpy_helper.from_array(numpy_helper.to_array(tensor).copy(), tensor.name))
+    onnx.save_model(model, b)
+    ma, mb = (ModelIntegrityService().inspect(p) for p in (a, b))
+    assert ma.fingerprints.structural_sha256 == mb.fingerprints.structural_sha256
+    assert ma.fingerprints.parameter_metadata_sha256 != mb.fingerprints.parameter_metadata_sha256
+    assert ma.fingerprints.parameter_value_sha256 == mb.fingerprints.parameter_value_sha256
+
+
+@pytest.mark.parametrize('value', [0.001, float('nan')])
+def test_value_only_mutation_preserves_metadata_and_structure(tmp_path, value):
+    from modules.model_integrity.baseline import BaselineComparisonService
+    a, b = tmp_path / 'reference.onnx', tmp_path / 'candidate.onnx'
+    model = make_model(a)
+    model.graph.initializer[0].float_data[0] = value
+    onnx.save_model(model, b)
+    ma, mb = (ModelIntegrityService().inspect(p) for p in (a, b))
+    assert ma.artifact.sha256 != mb.artifact.sha256
+    assert ma.structure.initializers == mb.structure.initializers
+    assert ma.fingerprints.structural_sha256 == mb.fingerprints.structural_sha256
+    assert ma.fingerprints.parameter_metadata_sha256 == mb.fingerprints.parameter_metadata_sha256
+    assert ma.fingerprints.parameter_value_sha256 != mb.fingerprints.parameter_value_sha256
+    result = BaselineComparisonService().compare(a, b)
+    assert result.structure.state == 'SAME'
+    assert 'STRUCTURAL_FINGERPRINT_CHANGED' not in result.structure.codes
+    assert mb.parameter_analysis.status == 'COMPLETE'
+    assert mb.parameter_analysis.coverage.element_coverage == 1
+    if value != value:
+        issue = next(i for i in mb.parameter_analysis.issues if i.code == 'PARAMETER_NAN')
+        assert issue.tensor_name == 'weight' and issue.severity_hint == 'HIGH'
+
+
+@pytest.mark.parametrize('mutation', ['operator', 'opset', 'input', 'output', 'added', 'removed', 'name', 'dtype', 'shape'])
+def test_genuine_structure_changes_remain_visible(tmp_path, mutation):
+    from modules.model_integrity.baseline import BaselineComparisonService
+    a, b = tmp_path / 'reference.onnx', tmp_path / 'candidate.onnx'
+    model = make_model(a)
+    if mutation == 'operator': model.graph.node.pop()
+    elif mutation == 'opset': model.opset_import[0].version += 1
+    elif mutation == 'input': model.graph.input[0].type.tensor_type.shape.dim[0].dim_value = 2
+    elif mutation == 'output': model.graph.output[0].type.tensor_type.shape.dim[0].dim_value = 2
+    elif mutation == 'added': model.graph.initializer.append(helper.make_tensor('extra', TensorProto.FLOAT, [1], [1]))
+    elif mutation == 'removed': model.graph.initializer.pop()
+    elif mutation == 'name': model.graph.initializer[0].name = 'renamed'
+    elif mutation == 'dtype': model.graph.initializer[0].data_type = TensorProto.INT32
+    elif mutation == 'shape': model.graph.initializer[0].dims[:] = [4, 1]
+    onnx.save_model(model, b)
+    result = BaselineComparisonService().compare(a, b)
+    assert result.structure.state == 'CHANGED'
+    assert 'STRUCTURAL_FINGERPRINT_CHANGED' in result.structure.codes
