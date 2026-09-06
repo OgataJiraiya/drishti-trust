@@ -181,3 +181,18 @@ summary:focus-visible, button:focus-visible { outline: 2px solid #5de0cc; outlin
 .graph-canvas:has(.live-graph) .graph-toolbar { top: 12px; right: 12px; bottom: auto; left: auto; flex-direction: row; }
 .graph-canvas:has(.live-graph) .graph-toolbar button { width: 34px; height: 34px; }
 @media(max-width: 900px) { .live-graph { grid-template-columns: minmax(0, 1fr); } }
+
+.report-page .report-finding {
+  height: auto;
+  min-height: 42px;
+  padding: 8px 9px;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 75px 90px;
+}
+.report-page .report-finding code, .report-page .report-finding strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+@media(max-width: 600px) {
+  .report-page .report-finding { grid-template-columns: minmax(0, 1fr) 90px; }
+}
