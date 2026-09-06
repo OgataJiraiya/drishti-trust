@@ -102,3 +102,11 @@ evaluator hardware.
 ## Organization-provided evidence is a separate workflow
 
 `make demo`, `make demo-clean`, and `make demo-live` use controlled evaluator fixtures. They do not test an organization’s model. For real evidence, start the live workstation with intake enabled and use **New Assessment**. See [Organization Assessment](ORGANIZATION_ASSESSMENT.md) for capability generation, ONNX intake, reference/behavioral options, signed evidence and cleanup. Do not expose the admin bearer through frontend configuration.
+
+## Repeated live demonstrations
+
+Each orchestration uses fresh ephemeral module keys with public-key-derived identifiers,
+so concern and clean assessments can run consecutively on the same backend without a
+key-identifier collision. Zero-Finding runs still produce no scored coverage.
+Model registry registration and revocation require the server-side administrative
+bearer; never place that bearer in browser JavaScript.

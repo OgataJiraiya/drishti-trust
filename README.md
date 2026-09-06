@@ -3,8 +3,8 @@
 DRISHTI is a local, air-gap-ready integrity-assurance workstation for computer-vision
 data, models, inference outputs, and deployment distribution evidence. It combines
 bounded heuristic detectors with authenticated provenance, backend-owned assurance
-scoring, a tamper-evident audit chain, immutable assessment snapshots, and a read-only
-analyst UI.
+scoring, a tamper-evident audit chain, immutable assessment snapshots, and an analyst UI
+with capability-scoped local evidence intake.
 
 DRISHTI provides evidence and integrity assurance. It does not prove that a model is
 safe, guarantee the absence of backdoors, or formally verify detector correctness.
@@ -20,7 +20,7 @@ flowchart LR
   I[Inference Integrity] -->|signed ModuleRun| B
   S[Distribution Shift] -->|signed ModuleRun| B
   B --> A[Backend scoring, disposition, audit and seal]
-  A --> U[Read-only Analyst UI]
+  A --> U[Analyst UI and local intake]
 ```
 
 All modules emit the frozen 11-field Finding Schema v1. The backend alone calculates
@@ -28,8 +28,8 @@ module scores, assessment coverage, system assurance, disposition, and lifecycle
 Distribution analysis does not produce a global drift score. The frontend performs no
 assurance or disposition calculation.
 
-An authenticated module run may contain zero findings. Its signed run proves execution,
-but the module remains `UNKNOWN`, has no score, and contributes zero coverage. DRISHTI
+An authenticated module run may contain zero findings. Its signed run authenticates
+the producer’s completion report; the module remains `UNKNOWN`, has no score, and contributes zero coverage. DRISHTI
 does not manufacture a PASS finding.
 
 ## Prerequisites

@@ -80,6 +80,10 @@ the approved sequence of bytes for this `model_id`? SHA-256 is the identity anch
 Filename, path, extension, declared format, display metadata, and architecture name are
 not identity evidence.
 
+Registration (both modes) and revocation require the administrative bearer in the
+`Authorization` header. Digest verification remains separate from registration.
+Never supply the administrative bearer to frontend JavaScript.
+
 Two offline registration modes make the source of trust explicit:
 
 - `POST /api/models/register` records a caller-provided digest and labels the entry

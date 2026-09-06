@@ -24,7 +24,7 @@ async def get_service(request: Request) -> EvidenceService:
     summary="Ingest one immutable Finding Schema v1 document",
     description=(
         "Disabled by default trusted-internal compatibility path requiring explicit enablement "
-        "and the internal bearer credential; normal modules must use signed-runs. The ten-field "
+        "and the internal bearer credential; normal modules must use signed-runs. The eleven-field "
         "Finding body is the frozen team contract. Identical resubmission is "
         "idempotent; changing an existing finding ID returns HTTP 409."
     ),
@@ -71,7 +71,7 @@ async def list_findings(
     )
 
 
-@router.get("/{finding_id}", response_model=Finding, summary="Retrieve one exact Finding JSON", description="Returns exactly the ten public Finding Schema v1 fields with no internal ingestion metadata.")
+@router.get("/{finding_id}", response_model=Finding, summary="Retrieve one exact Finding JSON", description="Returns exactly the eleven public Finding Schema v1 fields with no internal ingestion metadata.")
 async def get_finding(
     finding_id: str,
     session: Session = Depends(get_session),
