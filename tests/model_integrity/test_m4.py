@@ -571,3 +571,36 @@ def test_frozen_fingerprints_and_contracts_unchanged(tmp_path):
     assert before.fingerprints == after.fingerprints
     assert list(Finding.model_fields) == ["finding_id", "module", "asset_type", "asset_id",
         "category", "severity", "confidence", "reason", "evidence", "recommendation", "limitations"]
+
+
+def test_comparison_does_not_reparse_artifact_only_onnx(tmp_path, monkeypatch):
+    from modules.model_integrity.service import ModelIntegrityService
+    from modules.model_integrity.baseline import BaselineComparisonService
+    path = tmp_path / 'bounded.onnx'
+    path.write_bytes(b'oversized opaque bytes')
+    calls = []
+    def forbidden(*args, **kwargs):
+        calls.append(True)
+        raise AssertionError('parse ceiling bypassed')
+    monkeypatch.setattr(onnx, 'load_model', forbidden)
+    result = BaselineComparisonService(inspection_service=ModelIntegrityService(max_onnx_parse_bytes=1)).compare(path, path)
+    assert calls == []
+    assert result.structure.state.value == 'UNAVAILABLE'
+    assert result.parameters.value_state.value == 'UNAVAILABLE'
+    assert result.parameters.tensors_added == result.parameters.tensors_removed == []
+
+
+def test_missing_comparison_details_do_not_invent_removed_tensors(tmp_path, monkeypatch):
+    from modules.model_integrity import baseline
+    path = make_static(tmp_path / 'model.onnx')
+    original = baseline._tensor_commitments
+    calls = 0
+    def unavailable_once(*args):
+        nonlocal calls
+        calls += 1
+        return None if calls == 1 else original(*args)
+    monkeypatch.setattr(baseline, '_tensor_commitments', unavailable_once)
+    result = BaselineComparisonService().compare(path, path)
+    assert result.parameters.tensors_added == result.parameters.tensors_removed == []
+    assert result.status == ComparisonStatus.PARTIAL
+    assert 'TENSOR_VALUE_DETAILS_INCOMPARABLE' in result.limitations

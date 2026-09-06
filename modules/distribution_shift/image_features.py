@@ -72,7 +72,7 @@ def extract_image_features(path: Path, limits: ProfileLimits) -> ImageFeatures:
         if (after_hash.st_size, after_hash.st_mtime_ns) != (after_decode.st_size, after_decode.st_mtime_ns):
             raise SampleProcessingError(FailureCode.FILE_CHANGED)
     except SampleProcessingError: raise
-    except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError, SyntaxError) as exc:
+    except (UnidentifiedImageError, Image.DecompressionBombError, Image.DecompressionBombWarning, OSError, ValueError, SyntaxError) as exc:
         raise SampleProcessingError(FailureCode.INVALID_IMAGE) from exc
     luminance = .2126 * rgb[..., 0] + .7152 * rgb[..., 1] + .0722 * rgb[..., 2]
     brightness = _finite(np.mean(luminance)); contrast = _finite(np.std(luminance, ddof=0))

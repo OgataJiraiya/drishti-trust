@@ -361,3 +361,28 @@ def test_finding_schema_v1_remains_frozen():
         "finding_id", "module", "asset_type", "asset_id", "category",
         "severity", "confidence", "reason", "evidence", "recommendation", "limitations",
     ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('revoked', ['producer', 'key'])
+async def test_persistence_rechecks_current_approval(client, app, revoked):
+    from backend.schemas.module_auth import SignedModuleRunSubmission
+    from backend.services.integration_service import RunAuthentication
+    from backend.services.module_auth_service import ModuleAuthorizationDenied
+    key = Ed25519PrivateKey.generate()
+    await register_identity(client, key)
+    signed = SignedModuleRunSubmission.model_validate(signed_body(run_body(), 'KEY-DATA-001', key))
+    with app.state.session_factory() as session:
+        auth = app.state.module_auth_service.authenticate(signed, session)
+        session.rollback()
+        if revoked == 'producer':
+            app.state.producer_service.revoke_producer(auth.producer_id, session)
+        else:
+            app.state.producer_service.revoke_key(auth.producer_id, auth.key_id, session)
+        session.rollback()
+        with pytest.raises(ModuleAuthorizationDenied):
+            app.state.integration_service.ingest_run(signed.run, session, RunAuthentication(
+                mode='ED25519', producer_id=auth.producer_id, key_id=auth.key_id,
+                key_fingerprint=auth.key_fingerprint))
+        assert session.scalar(select(func.count()).select_from(ModuleRunRecord)) == 0
+        assert session.scalar(select(func.count()).select_from(FindingRecord)) == 0

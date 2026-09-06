@@ -10,6 +10,7 @@ from pathlib import Path
 class Settings:
     data_dir: Path = Path(__file__).resolve().parents[1] / "data"
     key_dir: Path = Path(__file__).resolve().parents[1] / "keys"
+    max_json_request_bytes: int = 40 * 1024 * 1024
     max_input_bytes: int = 25 * 1024 * 1024
     max_receipt_age_seconds: int = 300
     max_future_skew_seconds: int = 30

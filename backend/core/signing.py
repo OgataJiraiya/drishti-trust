@@ -36,9 +36,14 @@ def generate_key_pair(key_dir: Path, name: str = "receipt_signing") -> KeyPairPa
         serialization.Encoding.PEM,
         serialization.PublicFormat.SubjectPublicKeyInfo,
     )
-    private_path.write_bytes(private_bytes)
-    os.chmod(private_path, 0o600)
-    public_path.write_bytes(public_bytes)
+    # Create with final permissions and exclusive ownership from the first byte.
+    # A concurrent creator or dangling symlink must never be overwritten.
+    descriptor = os.open(private_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as target:
+        target.write(private_bytes)
+    descriptor = os.open(public_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    with os.fdopen(descriptor, "wb") as target:
+        target.write(public_bytes)
     return KeyPairPaths(private_path, public_path)
 
 

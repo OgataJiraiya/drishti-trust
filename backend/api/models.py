@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from backend.api.audit import append_event
 from backend.api.dependencies import get_session
+from backend.api.auth import require_admin
 from backend.core.hashing import ArtifactTooLarge, sha256_async_chunks
 from backend.database.repository import ModelRegistryRepository
 from backend.schemas.model import (
@@ -26,7 +27,7 @@ async def service(request: Request) -> ModelRegistryService:
 
 
 @router.post(
-    "/register",
+    "/register", dependencies=[Depends(require_admin)],
     response_model=ModelRegistrationResponse,
     summary="Register a provided approved SHA-256 digest",
     description=(
@@ -51,7 +52,7 @@ async def register_digest(
 
 
 @router.post(
-    "/register/artifact",
+    "/register/artifact", dependencies=[Depends(require_admin)],
     response_model=ModelRegistrationResponse,
     summary="Register an opaque streamed model artifact",
     description=(
@@ -172,7 +173,7 @@ async def verify_artifact(
     return result
 
 
-@router.post("/{model_id}/revoke", response_model=ModelRegistryEntry, summary="Revoke an approved model", description="Marks the registry entry unauthorized without replacing or deleting its historical SHA-256 trust anchor.")
+@router.post("/{model_id}/revoke", dependencies=[Depends(require_admin)], response_model=ModelRegistryEntry, summary="Revoke an approved model", description="Marks the registry entry unauthorized without replacing or deleting its historical SHA-256 trust anchor.")
 async def revoke_model(
     model_id: str,
     request: Request,

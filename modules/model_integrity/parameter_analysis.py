@@ -205,7 +205,7 @@ def _channel_issues(name: str, values: np.ndarray, shape: list[int], limits: Par
                     ) -> tuple[list[ParameterIssue], str | None]:
     # ONNX matrix weights and common 1D/2D/3D convolution kernels have ranks 2..5.
     # Scalars, vectors, and higher-rank arbitrary tensors have no assumed channel meaning.
-    if not 2 <= len(shape) <= 5 or shape[0] < 2 or values.size != _safe_count(shape):
+    if values.size == 0 or not 2 <= len(shape) <= 5 or shape[0] < 2 or values.size != _safe_count(shape):
         return [], None
     if shape[0] > limits.max_channels_per_tensor:
         return [], f"CHANNEL_ANALYSIS_SKIPPED_CHANNEL_LIMIT: tensor={name}"

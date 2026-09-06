@@ -218,3 +218,40 @@ def test_finding_v1_and_signing_bytes_bind_assessment():
     a = ModuleRunSubmission.model_validate(base)
     b = ModuleRunSubmission.model_validate({**base, "assessment_id": "B"})
     assert module_run_signing_bytes(a) != module_run_signing_bytes(b)
+
+
+@pytest.mark.anyio
+async def test_snapshot_verification_requires_matching_authentication_commitment(client, app):
+    from backend.database.models import ModuleRunAuthenticationRecord
+    key = Ed25519PrivateKey.generate()
+    await register_identity(client, key)
+    await create(client, 'AUTH-CHECK')
+    await client.post('/api/assessments/AUTH-CHECK/activate')
+    run = {'run_id': 'AUTH-CHECK-RUN', 'assessment_id': 'AUTH-CHECK',
+           'module': 'dataset_integrity', 'producer': 'data-integrity', 'findings': []}
+    assert (await client.post('/api/integration/signed-runs', json=signed_body(run, 'KEY-DATA-001', key))).status_code == 200
+    assert (await client.post('/api/assessments/AUTH-CHECK/seal')).status_code == 200
+    with app.state.session_factory() as session:
+        auth = session.get(ModuleRunAuthenticationRecord, 'AUTH-CHECK-RUN')
+        auth.request_hash = '0' * 64
+        session.commit()
+    assert (await client.get('/api/assessments/AUTH-CHECK/snapshot/verify')).json()['status'] == 'INVALID'
+
+
+@pytest.mark.anyio
+async def test_unavailable_audit_does_not_release_seal_transaction(client, app, monkeypatch):
+    await create(client, 'AUDIT-UNAVAILABLE')
+    await client.post('/api/assessments/AUDIT-UNAVAILABLE/activate')
+    original = app.state.summary_service._audit_summary
+    def unavailable(*args):
+        raise RuntimeError('audit read unavailable')
+    monkeypatch.setattr(app.state.audit_service, 'verify', unavailable)
+    def checked(session, audit_service):
+        result = original(session, audit_service)
+        assert session.connection().connection.driver_connection.in_transaction
+        return result
+    monkeypatch.setattr(app.state.summary_service, '_audit_summary', checked)
+    result = await client.post('/api/assessments/AUDIT-UNAVAILABLE/seal')
+    assert result.status_code == 200
+    assert result.json()['payload']['summary']['audit_integrity']['status'] == 'UNAVAILABLE'
+    assert (await client.get('/api/assessments/AUDIT-UNAVAILABLE/snapshot/verify')).json()['status'] == 'VALID'

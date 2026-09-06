@@ -27,7 +27,7 @@ it('keeps backend coverage and score status in the visible overview flow', () =>
 
 it('shows authentication and run identity with the actual workstation stylesheet', () => {
   render(<SystemPage summary={demoScenarios.critical} backend="ONLINE" runs={[{
-    run_id: 'FULL-CONCERN-TEST-RUN-1', assessment_id: 'FULL-CONCERN-TEST',
+    run_id: 'FULL-CONCERN-TEST-RUN-1', assessment_id: demoScenarios.critical.assessment_id,
     module: 'dataset_integrity', producer: 'full-system-dataset_integrity',
     producer_version: '1', request_hash: 'a'.repeat(64), total_findings: 1,
     created_findings: 1, existing_findings: 0, finding_ids: [], created_at: '2026-09-05',

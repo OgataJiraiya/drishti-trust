@@ -226,3 +226,18 @@ def test_public_schema_has_no_drift_or_trust_decision_fields(tmp_path):
     fields = ImageWindowProfiler().profile_directory(tmp_path).to_dict()
     prohibited = {"drift_score", "risk_score", "trust_score", "severity", "disposition", "findings"}
     assert prohibited.isdisjoint(fields)
+
+
+def test_decoder_warning_becomes_explicit_sample_failure(tmp_path, monkeypatch):
+    import warnings
+    from PIL import Image
+    from modules.distribution_shift.profiling import ImageWindowProfiler
+    path = tmp_path / 'image.png'
+    Image.new('RGB', (2, 2)).save(path)
+    def warned(*args, **kwargs):
+        warnings.warn('decoder resource warning', Image.DecompressionBombWarning)
+    monkeypatch.setattr(Image, 'open', warned)
+    report = ImageWindowProfiler().profile_current(tmp_path)
+    assert report.status.value == 'UNAVAILABLE'
+    assert report.sample_count_failed == 1
+    assert report.sample_count_profiled == 0

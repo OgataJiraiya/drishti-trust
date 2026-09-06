@@ -18,6 +18,8 @@ from backend.database.repository import (
     EvidenceRepository,
     ModuleRunAuthenticationRepository,
     ModuleRunRepository,
+    ProducerRepository,
+    ProducerKeyRepository,
 )
 from backend.schemas.evidence import Finding
 from backend.schemas.integration import (
@@ -28,6 +30,7 @@ from backend.schemas.integration import (
 )
 from backend.services.evidence_service import EvidenceService
 from backend.services.audit_outbox_service import AuditOutboxService
+from backend.services.module_auth_service import ModuleAuthorizationDenied
 
 
 class IntegrationConflict(ValueError):
@@ -76,6 +79,19 @@ class IntegrationService:
 
         # Reserve SQLite write state before checking any immutable identity.
         session.execute(text("BEGIN IMMEDIATE"))
+        # Approval can change after signature verification. Revalidate its binding
+        # under the same write reservation used by producer/key revocation.
+        if authentication.mode == "ED25519":
+            producer = ProducerRepository(session).get(authentication.producer_id)
+            key = ProducerKeyRepository(session).get(authentication.key_id)
+            if (producer is None or producer.status != "APPROVED"
+                    or producer.producer_id != submission.producer
+                    or producer.module != submission.module.value
+                    or key is None or key.status != "ACTIVE"
+                    or key.producer_id != producer.producer_id
+                    or key.public_key_fingerprint != authentication.key_fingerprint):
+                session.rollback()
+                raise ModuleAuthorizationDenied("Module approval changed before persistence")
         run_repository = ModuleRunRepository(session)
         evidence_repository = EvidenceRepository(session)
         membership_repository = AssessmentMembershipRepository(session)

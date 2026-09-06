@@ -91,3 +91,16 @@ def test_risk_summary_uses_real_contributor_metadata(monkeypatch, tmp_path):
     assert result["risk_summary"] == [{"contributor_id": "source-a", "finding_count": 1, "average_confidence": 1.0, "affected_batches": ["batch-1"]}]
     assert "contributor_id=source-a" in result["findings"][0]["evidence"]
     assert "batch_id=batch-1" in result["findings"][0]["evidence"]
+
+
+def test_exact_duplicate_suppression_retains_distinct_groups(monkeypatch, tmp_path):
+    dataset = _dataset(tmp_path, with_labels=False)
+    monkeypatch.setattr('modules.data_integrity.analyzer.find_exact_duplicates',
+                        lambda *_, **__: {'a': ['one.jpg', 'two.jpg'], 'b': ['three.jpg', 'four.jpg']})
+    monkeypatch.setattr('modules.data_integrity.analyzer.find_near_duplicates', lambda *_, **__: [
+        {'image_a': 'one.jpg', 'image_b': 'two.jpg', 'phash_distance': 0},
+        {'image_a': 'one.jpg', 'image_b': 'three.jpg', 'phash_distance': 1}])
+    result = analyze_dataset(str(dataset), run_labels=False, run_ood=False, run_risk=False)
+    assert result['findings_by_category'] == {'EXACT_DUPLICATE': 2, 'NEAR_DUPLICATE': 1}
+    near = next(f for f in result['findings'] if f['category'] == 'NEAR_DUPLICATE')
+    assert 'matched_sample=three.jpg' in near['evidence']

@@ -130,12 +130,12 @@ async def test_registry_persists_after_application_reopen(client, test_settings)
 
 @pytest.mark.anyio
 async def test_oversized_artifact_is_rejected_cleanly(tmp_path):
-    settings = Settings(data_dir=tmp_path / "limited-data", key_dir=tmp_path / "limited-keys", max_model_bytes=4)
+    settings = Settings(data_dir=tmp_path / "limited-data", key_dir=tmp_path / "limited-keys", max_model_bytes=4, admin_bearer_token="model-limit-test")
     limited = create_app(settings)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=limited), base_url="http://limited") as client:
         response = await client.post(
             "/api/models/register/artifact?model_id=LIMITED&display_name=Limited",
-            content=b"five!",
+            content=b"five!", headers={"Authorization": "Bearer model-limit-test"},
         )
     assert response.status_code == 413
     assert "detail" in response.json()
@@ -146,3 +146,15 @@ def test_streaming_file_hash_small_and_large():
     large = (b"model-block" * 200_000) + b"tail"
     assert sha256_stream(BytesIO(small), chunk_size=3) == hashlib.sha256(small).hexdigest()
     assert sha256_stream(BytesIO(large), chunk_size=4096) == hashlib.sha256(large).hexdigest()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('route,kwargs', [
+    ('/api/models/register', {'json': {'model_id': 'UNAUTHORIZED', 'display_name': 'Unauthorized', 'expected_sha256': '0' * 64}}),
+    ('/api/models/register/artifact?model_id=UNAUTHORIZED&display_name=Unauthorized', {'content': b'opaque'}),
+    ('/api/models/UNAUTHORIZED/revoke', {}),
+])
+async def test_model_approval_mutations_require_admin(client, route, kwargs):
+    response = await client.post(route, headers={'Authorization': 'Bearer wrong'}, **kwargs)
+    assert response.status_code == 401
+    assert (await client.get('/api/models/UNAUTHORIZED')).status_code == 404

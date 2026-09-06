@@ -84,7 +84,7 @@ Again, supply real observations with sufficient support. Maximum 128 records/win
 
 Only executed modules create runs. A model-only assessment has one authenticated Model Integrity run; the other three domains are NOT SUBMITTED. A legitimate zero-Finding detector run is allowed, but the frozen backend scoring policy still treats a module without Findings as UNKNOWN. Execution completion and scoring coverage are different. Do not interpret no findings, a valid signature, complete coverage, or a sealed snapshot as safety.
 
-Detectors run before creating the backend assessment. After detector analysis, intake prepares and authenticates every signed envelope with fresh in-memory Ed25519 keys before creating DRAFT and activating it. Approval is rechecked immediately before each submission through the unchanged integration gate. Module progress is AWAITING SUBMISSION after analysis and COMPLETE only after authenticated persistence. Backend `AssessmentService` owns sealing; `SummaryService` owns scores and coverage. Private execution keys never leave the server. Public producer registrations remain auditable. The model registry upload/verify APIs remain identity-only and are not used for execution.
+Detectors run before creating the backend assessment. After detector analysis, intake prepares and authenticates every signed envelope with fresh in-memory Ed25519 keys before creating DRAFT and activating it. Approval and key binding are rechecked inside the persistence write reservation after signature authentication. Module progress is AWAITING SUBMISSION after analysis and COMPLETE only after authenticated persistence. Backend `AssessmentService` owns sealing; `SummaryService` owns scores and coverage. Private execution keys never leave the server. Public producer registrations remain auditable. The model registry upload/verify APIs remain identity-only and are not used for execution.
 
 An existing unrelated ACTIVE assessment is not modified automatically; activation conflicts fail honestly. Intake finalization recovery reads its own persisted lifecycle in a fresh session, including when an operation committed before raising. After activation, recovery seals exactly the successfully persisted subset, including zero runs (coverage 0, assurance UNAVAILABLE, disposition REVIEW). Unsubmitted modules never become COMPLETE or gain coverage. A partial intake remains FAILED at the job level but exposes its truthful SEALED snapshot and View Assessment action; assessment lifecycle states are unchanged. If all requested runs persisted and sealing recovery succeeds, the intake is COMPLETE.
 
@@ -115,3 +115,16 @@ Supply your actual contract; these names/ranges are examples. Use `--classificat
 ## Validation
 
 `backend/tests/test_intake.py` creates bounded local ONNX, NPY, images and receipt fixtures, tests candidate-only, reference, behavioral and full D1–D6 evidence, authenticates runs, verifies sealing, and checks authorization, expiry, traversal, size and cleanup. These tests need no Internet. Browser validation artifacts belong under `/tmp/drishti-intake-validation/`, outside the repository.
+
+## Execution and assurance in Overview
+
+Execution comes from authenticated ModuleRun membership in the selected assessment.
+A completed zero-Finding model run displays authenticated completion alongside UNKNOWN
+assurance, zero coverage contribution and UNAVAILABLE overall assurance. Absence of
+Findings does not establish safety. No run displays NOT SUBMITTED only when the run
+listing is complete; unavailable or truncated evidence is identified as unavailable.
+The backend remains the sole score, disposition and lifecycle authority.
+
+Non-streaming mutation API bodies have a default 40 MiB pre-JSON limit. Raw artifact
+and intake upload handlers retain their separate incremental limits. These are
+per-request bounds, not a multi-user process memory guarantee.

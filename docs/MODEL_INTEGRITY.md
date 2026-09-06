@@ -260,7 +260,9 @@ is a scanner resource-safety boundary, not evidence that a large model is malici
 
 `artifact_sha256` hashes every file byte and is compatible with the existing registry.
 `structural_sha256` separately hashes canonical JSON containing ONNX IR version, sorted
-opsets, graph inputs/outputs, ordered nodes and sorted initializer metadata.
+opsets, graph inputs/outputs, ordered nodes and sorted initializer names, dtypes,
+shapes and element counts. Initializer storage lengths and external locations are
+excluded from structure.
 `parameter_metadata_sha256` covers initializer names, dtypes, shapes, element counts,
 embedded raw-byte lengths and declared external locations—but never weight values.
 
@@ -305,6 +307,17 @@ Failures are bounded and produce no stack trace by default.
 
 ## Limitations and roadmap
 
-M2–M5 do not prove presence or absence of backdoors, trojans, poisoning, adversarial behavior or
-semantic replacement. M6 will add
-the final Person-2 demonstration. Unknown and unavailable evidence will remain explicit.
+M2–M5 do not prove presence or absence of backdoors, trojans, poisoning, adversarial
+behavior or semantic replacement. M6 provides the controlled final demonstration;
+see MODEL_INTEGRITY_FINAL_DEMO.md. Unknown and unavailable evidence remain explicit.
+
+### Fingerprint compatibility after final hardening
+
+Structural hashes produced before this separation used initializer storage metadata.
+Reinspect trusted originals to regenerate comparison baselines across this change.
+Parameter metadata and parameter-value definitions are unchanged. A typed-field to
+raw-byte serialization change legitimately changes parameter metadata; value-only
+fixtures should preserve their original storage representation. Baseline comparison
+retains inspection ceilings and reports unavailable tensor details without inventing
+added or removed tensors. Structural identity remains a conservative projection, not
+a full ONNX semantic-equivalence proof.
