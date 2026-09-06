@@ -53,6 +53,8 @@ async def ingest_signed_module_run(
                 key_fingerprint=authentication.key_fingerprint,
             ),
         )
+    except ModuleAuthorizationDenied as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except IntegrationConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except AssessmentNotFound as exc:
