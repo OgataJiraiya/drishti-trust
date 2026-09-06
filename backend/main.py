@@ -69,21 +69,25 @@ def create_app(settings: Settings = default_settings) -> FastAPI:
     settings.key_dir.mkdir(parents=True, exist_ok=True)
     private_path = settings.key_dir / "receipt_signing.private.pem"
     public_path = settings.key_dir / "receipt_signing.public.pem"
-    if not private_path.exists() and not public_path.exists():
-        generate_key_pair(settings.key_dir)
-    elif not private_path.exists() or not public_path.exists():
-        raise RuntimeError("Incomplete signing key pair; restore or rotate keys explicitly")
-
     engine = create_sqlite_engine(settings.database_path)
     initialize(engine)
     checkpoint_private_path = settings.key_dir / "audit_checkpoint_signing.private.pem"
     checkpoint_public_path = settings.key_dir / "audit_checkpoint_signing.public.pem"
     from sqlalchemy import func, select
     from sqlalchemy.orm import Session
-    from backend.database.models import AuditCheckpointRecord
+    from backend.database.models import AuditCheckpointRecord, InferenceReceiptRecord
     with Session(engine) as continuity_session:
         checkpoint_count = int(continuity_session.scalar(
             select(func.count()).select_from(AuditCheckpointRecord)) or 0)
+    if not private_path.exists() and not public_path.exists():
+        with Session(engine) as continuity_session:
+            if continuity_session.scalar(select(InferenceReceiptRecord.receipt_id).limit(1)) is not None:
+                raise RuntimeError("Inference receipts exist but receipt trust-root keys are missing")
+        generate_key_pair(settings.key_dir)
+    elif not private_path.exists() or not public_path.exists():
+        raise RuntimeError("Incomplete signing key pair; restore or rotate keys explicitly")
+
+
     if not checkpoint_private_path.exists() and not checkpoint_public_path.exists():
         if checkpoint_count:
             raise RuntimeError("Audit checkpoints exist but checkpoint trust-root keys are missing")
@@ -108,6 +112,8 @@ def create_app(settings: Settings = default_settings) -> FastAPI:
         # Separate CORS policy scoped only to intake paths; other routes remain GET-only.
         from backend.api.intake_cors import IntakeCORSMiddleware
         app.add_middleware(IntakeCORSMiddleware, origin=settings.intake_origin)
+    from backend.api.body_limit import BodyLimitMiddleware
+    app.add_middleware(BodyLimitMiddleware, max_bytes=settings.max_json_request_bytes)
     app.state.engine = engine
     app.state.settings = settings
     app.state.session_factory = session_factory(engine)

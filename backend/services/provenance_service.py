@@ -48,6 +48,8 @@ class ProvenanceService:
         max_future_skew_seconds: int = 30,
         outbox: AuditOutboxService | None = None,
     ) -> None:
+        if public_key_id(private_key.public_key()) != public_key_id(public_key):
+            raise RuntimeError("Receipt private/public key pair is inconsistent")
         self.private_key = private_key
         self.public_key = public_key
         self.max_input_bytes = max_input_bytes
