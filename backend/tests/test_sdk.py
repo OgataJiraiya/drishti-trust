@@ -148,3 +148,22 @@ async def test_all_four_sdk_adapters_reach_complete_trusted_summary(client):
     summary = (await client.get("/api/summary?assessment_id=SDK-ALL")).json()
     assert summary["overall"]["assessment_coverage"] == 1.0
     assert summary["overall"]["score_status"] == "COMPLETE"
+
+
+def test_full_orchestrator_repeats_with_fresh_keys_on_same_backend(app):
+    from fastapi.testclient import TestClient
+    from drishti_sdk import FullAssessmentOrchestrator
+    from backend.schemas.common import FindingModule
+    sdk = DrishtiClient()
+    sdk._http.close()
+    with TestClient(app, headers={'Authorization': 'Bearer TEST-RUNTIME-BEARER'}) as backend:
+        sdk._http = backend
+        modules = {module.value: [] for module in FindingModule}
+        for identity in ('REPEAT-ONE', 'REPEAT-TWO'):
+            result = FullAssessmentOrchestrator(sdk).run(identity, modules)
+            assert result.lifecycle == 'SEALED'
+            assert result.snapshot['status'] == 'VALID'
+            assert result.summary['overall']['assurance_score'] is None
+        for module in modules:
+            keys = backend.get(f'/api/producers/full-system-{module}/keys').json()['items']
+            assert len(keys) == 2 and keys[0]['key_id'] != keys[1]['key_id']

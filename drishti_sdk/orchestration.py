@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import Mapping, Sequence
 
 from cryptography.hazmat.primitives import serialization
@@ -50,8 +51,10 @@ class FullAssessmentOrchestrator:
             if any(item.module.value != module for item in findings):
                 raise ValueError(f"finding module mismatch for {module}")
             producer = f"full-system-{module}"
-            key_id = f"full-system-key-{module}"
             key = Ed25519PrivateKey.generate()
+            key_digest = sha256(key.public_key().public_bytes(
+                serialization.Encoding.Raw, serialization.PublicFormat.Raw)).hexdigest()
+            key_id = f"full-system-key-{module}-{key_digest[:24]}"
             self.client.register_producer(producer, module.replace("_", " ").title(), module)
             self.client.register_producer_key(producer, key_id, self._public_pem(key))
             run = self.client.build_run(module=module, assessment_id=assessment_id,
