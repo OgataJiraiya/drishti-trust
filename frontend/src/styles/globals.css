@@ -195,4 +195,9 @@ summary:focus-visible, button:focus-visible { outline: 2px solid #5de0cc; outlin
 }
 @media(max-width: 600px) {
   .report-page .report-finding { grid-template-columns: minmax(0, 1fr) 90px; }
+  /* These must follow the desktop workstation grid overrides above. */
+  .drift-reference-summary, .report-page .reference-status-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .distribution-page { padding: 18px 14px; }
 }
