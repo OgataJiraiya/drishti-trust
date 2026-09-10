@@ -1,0 +1,186 @@
+{
+  "starting_sha": "dfa91fe05d4e20eec9c934bafd2c643dbceaa3cd",
+  "final_sha": "af6673838cfb24daba0bacdc534b6e16ce7ace57",
+  "final_sha_scope": "Final validated implementation/tests; a subsequent documentation-only commit publishes this report.",
+  "branch": "fix/astra-daybreak-remediation",
+  "issues": [
+    {
+      "id": "DB-001",
+      "severity": "MEDIUM",
+      "reproduced": true,
+      "fixed": true,
+      "root_cause": "Concurrent sessions read MAX(sequence)+1 and the chain predecessor before reserving the SQLite writer.",
+      "files": [
+        "backend/services/provenance_service.py"
+      ],
+      "tests": [
+        "backend/tests/test_astra_remediation.py::test_receipt_concurrency_preserves_chain[2]",
+        "backend/tests/test_astra_remediation.py::test_receipt_concurrency_preserves_chain[5]",
+        "backend/tests/test_astra_remediation.py::test_receipt_rollback_and_repeated_session"
+      ]
+    },
+    {
+      "id": "DB-002",
+      "severity": "MEDIUM",
+      "reproduced": true,
+      "fixed": true,
+      "root_cause": "The workspace uses a ten-finding summary preview as complete evidence; report also slices the loaded data.",
+      "files": [
+        "backend/api/assessments.py",
+        "backend/database/repository.py",
+        "backend/schemas/assessments.py",
+        "frontend/src/api/workspaces.ts",
+        "frontend/src/hooks/useWorkspaceData.ts",
+        "frontend/src/App.tsx",
+        "frontend/src/pages/ReportsPage.tsx"
+      ],
+      "tests": [
+        "backend/tests/test_astra_remediation.py::test_scoped_findings_complete_paginated_and_isolated",
+        "backend/tests/test_astra_remediation.py::test_scoped_findings_require_matching_authentication_and_deduplicate",
+        "frontend/src/test/AstraEvidence.test.tsx",
+        "scripts/validate_astra_browser.py"
+      ]
+    },
+    {
+      "id": "DB-003",
+      "severity": "LOW",
+      "reproduced": true,
+      "fixed": true,
+      "root_cause": "Late fixed desktop grid columns override earlier mobile single-column rules.",
+      "files": [
+        "frontend/src/styles/globals.css"
+      ],
+      "tests": [
+        "scripts/validate_astra_browser.py"
+      ]
+    },
+    {
+      "id": "DB-004",
+      "severity": "LOW",
+      "reproduced": true,
+      "fixed": true,
+      "root_cause": "Four CI action references use mutable major tags.",
+      "files": [
+        ".github/workflows/ci.yml"
+      ],
+      "tests": [
+        "backend/tests/test_astra_remediation.py::test_ci_actions_are_immutable",
+        "PyYAML syntax parse and minimal permissions assertion"
+      ]
+    }
+  ],
+  "tests": {
+    "python": {
+      "passed": 823,
+      "skipped": 1,
+      "deselected": 0,
+      "exit_code": 0,
+      "seconds": 88.2,
+      "environment": "workspace Python 3.14.6"
+    },
+    "python_isolated": {
+      "passed": 823,
+      "skipped": 1,
+      "deselected": 0,
+      "exit_code": 0,
+      "seconds": 70.42,
+      "environment": "isolated Python 3.13.14"
+    },
+    "focused_backend": {
+      "passed": 6
+    },
+    "frontend": {
+      "passed": 41,
+      "files": 6,
+      "exit_code": 0
+    },
+    "compileall": {
+      "exit_code": 0
+    },
+    "pip_check": {
+      "exit_code": 1,
+      "reason": "workspace venv inherits unrelated conflicting/missing Kali packages"
+    },
+    "pip_check_isolated": {
+      "exit_code": 0
+    },
+    "typecheck": {
+      "exit_code": 0
+    },
+    "lint": {
+      "exit_code": 0
+    },
+    "build": {
+      "exit_code": 0
+    },
+    "diff_check": {
+      "exit_code": 0
+    },
+    "yaml": {
+      "exit_code": 0
+    },
+    "demo_concern": {
+      "exit_code": 0,
+      "authenticated_findings": 4,
+      "coverage": 1,
+      "assurance": 48.3,
+      "score_status": "COMPLETE",
+      "disposition": "QUARANTINE",
+      "snapshot": "VALID"
+    },
+    "demo_clean": {
+      "exit_code": 0,
+      "authenticated_findings": 0,
+      "coverage": 0,
+      "assurance": null,
+      "score_status": "UNAVAILABLE",
+      "disposition": "REVIEW",
+      "snapshot": "VALID"
+    },
+    "real_onnx": {
+      "exit_code": 0,
+      "originals_unchanged": true,
+      "modified_identity": "CHANGED",
+      "nan_evidence": "HIGH PARAMETER_NAN"
+    }
+  },
+  "browser": {
+    "tool": "Selenium + Chromium/ChromeDriver 150.0.7871.181",
+    "live_backend": "Uvicorn",
+    "live_frontend": "Vite",
+    "matrix": {
+      "390x844": "7/7 PASS",
+      "1366x768": "7/7 PASS",
+      "1920x1080": "7/7 PASS"
+    },
+    "routes": [
+      "/",
+      "/findings",
+      "/distribution",
+      "/reports",
+      "/new-assessment",
+      "/system",
+      "/graph"
+    ],
+    "findings_A": 12,
+    "findings_B": 3,
+    "findings_empty": 0,
+    "network_transport_failures": 0,
+    "console_limitations": [
+      "Existing /favicon.ico 404"
+    ],
+    "final_overflow": false
+  },
+  "open_blockers": [],
+  "limitations": [
+    "Workspace pip check fails due to inherited Kali packages; isolated declared environment passes.",
+    "DOTA128 external fixture unavailable (one skip).",
+    "Existing fork and Starlette deprecation warnings.",
+    "Existing cosmetic favicon 404.",
+    "Large selected assessments require proportional browser memory; changing totals are reported incomplete."
+  ],
+  "frozen_semantics_changed": false,
+  "main_modified": false,
+  "remote_pushed": false,
+  "verdict": "PASS_WITH_LIMITATIONS"
+}
