@@ -1,0 +1,69 @@
+{
+  "starting_sha": "dfa91fe05d4e20eec9c934bafd2c643dbceaa3cd",
+  "final_sha": "6058b455f17a00f5ad97cab1bb1ab9340fc432d5",
+  "branch": "audit/daybreak-blue-full-review",
+  "tests": {
+    "existing_module_suite": "589 passed, 1 skipped",
+    "full_supported_suite": "799 passed, 1 skipped, 1 deselected in 53.67s",
+    "intake_fault_matrix_diagnostic": "26 passed in 7.76s; temporary diagnostic adaptation reverted",
+    "new_backend_regressions": "9 passed in 1.33s",
+    "frontend": "39 passed",
+    "typecheck": "PASS",
+    "lint": "PASS",
+    "build": "PASS",
+    "browser_matrix": "63/63 PASS",
+    "npm_audit": "0 vulnerabilities",
+    "pip_check": "PASS"
+  },
+  "findings": [
+    {
+      "id": "DB-001",
+      "severity": "MEDIUM",
+      "title": "Receipt sequence allocation race",
+      "status": "FIXED",
+      "files": [
+        "backend/services/provenance_service.py",
+        "backend/tests/test_receipts.py"
+      ],
+      "regression_test": "backend/tests/test_receipts.py::test_concurrent_receipt_creation_allocates_distinct_sequences"
+    },
+    {
+      "id": "DB-002",
+      "severity": "MEDIUM",
+      "title": "Assessment UI silently omitted findings beyond summary preview",
+      "status": "FIXED",
+      "files": [
+        "backend/api/assessments.py",
+        "backend/database/repository.py",
+        "frontend/src/api/workspaces.ts",
+        "frontend/src/hooks/useWorkspaceData.ts",
+        "backend/tests/test_assessment_lifecycle.py",
+        "frontend/src/test/WorkspaceData.test.tsx"
+      ],
+      "regression_test": "backend/tests/test_assessment_lifecycle.py::test_assessment_findings_endpoint_is_scoped_and_not_summary_truncated; frontend/src/test/WorkspaceData.test.tsx"
+    },
+    {
+      "id": "DB-003",
+      "severity": "LOW",
+      "title": "Mobile report and distribution pages overflowed horizontally",
+      "status": "FIXED",
+      "files": [
+        "frontend/src/styles/globals.css",
+        "frontend/src/test/EvaluatorVisibility.test.tsx"
+      ],
+      "regression_test": "frontend/src/test/EvaluatorVisibility.test.tsx plus 390x844 Selenium matrix"
+    },
+    {
+      "id": "DB-004",
+      "severity": "LOW",
+      "title": "CI used mutable third-party action tags",
+      "status": "FIXED",
+      "files": [
+        ".github/workflows/ci.yml"
+      ],
+      "regression_test": "Workflow source inspection and upstream tag SHA verification"
+    }
+  ],
+  "release_blockers": [],
+  "verdict": "PASS_WITH_LIMITATIONS"
+}
