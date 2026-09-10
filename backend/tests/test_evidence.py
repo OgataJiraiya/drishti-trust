@@ -125,6 +125,36 @@ async def test_invalid_finding_values_return_clean_4xx(client, field, value):
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("mutation", [
+    lambda body: body.pop("category"),
+    lambda body: body.update(timestamp="2026-09-10T00:00:00Z"),
+    lambda body: (body.pop("category"), body.update(attack_class="NEAR_DUPLICATE")),
+    lambda body: body.update(evidence="phash_distance=3"),
+    lambda body: body.update(evidence=["valid", 7]),
+    lambda body: body.update(reason="x" * 2049),
+])
+async def test_finding_shape_and_bounds_reject_contract_drift(client, mutation):
+    body = dataset_finding()
+    mutation(body)
+    response = await client.post("/api/evidence", json=body)
+    assert response.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_unicode_and_markup_are_data_not_schema_extensions(client):
+    body = dataset_finding()
+    body.update(
+        finding_id="F-UNICODE-001",
+        asset_id="sample:दृष्टि-👁️",
+        reason="<script>alert('xss')</script> Δοκιμή 数据",
+        evidence=["<img src=x onerror=alert(1)>", "unicode=✓"],
+    )
+    response = await client.post("/api/evidence", json=body)
+    assert response.status_code == 200
+    assert response.json()["finding"] == body
+
+
+@pytest.mark.anyio
 async def test_identical_duplicate_is_idempotent_without_duplicate_row_or_audit(client, app):
     first = await client.post("/api/evidence", json=dataset_finding())
     second = await client.post("/api/evidence", json=dataset_finding())

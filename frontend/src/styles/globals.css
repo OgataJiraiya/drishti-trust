@@ -196,3 +196,24 @@ summary:focus-visible, button:focus-visible { outline: 2px solid #5de0cc; outlin
 @media(max-width: 600px) {
   .report-page .report-finding { grid-template-columns: minmax(0, 1fr) 90px; }
 }
+
+/* Keep late desktop workstation overrides from defeating the mobile layout. */
+@media screen and (max-width: 600px) {
+  .distribution-page, .report-page {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 18px 14px;
+  }
+  .drift-reference-summary, .report-page .reference-status-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .drift-reference-summary section,
+  .report-page .reference-score-panel,
+  .report-page .reference-disposition-panel {
+    width: auto;
+    min-width: 0;
+  }
+}

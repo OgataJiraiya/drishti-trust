@@ -99,6 +99,28 @@ async def test_signed_run_binds_active_assessment_and_exact_rerun(client, app):
 
 
 @pytest.mark.anyio
+async def test_assessment_findings_endpoint_is_scoped_and_not_summary_truncated(client):
+    key = Ed25519PrivateKey.generate()
+    await register_identity(client, key)
+    await create(client, "MANY")
+    await client.post("/api/assessments/MANY/activate")
+    findings = [_low_dataset(f"F-MANY-{index:03d}") for index in range(12)]
+    run = {"run_id": "RUN-MANY", "assessment_id": "MANY", "module": "dataset_integrity",
+           "producer": "data-integrity", "findings": findings}
+    assert (await client.post(
+        "/api/integration/signed-runs", json=signed_body(run, "KEY-DATA-001", key)
+    )).status_code == 200
+
+    summary = (await client.get("/api/summary?assessment_id=MANY")).json()
+    scoped = (await client.get("/api/assessments/MANY/findings?page=1&page_size=100")).json()
+    assert len(summary["latest_findings"]) == 10
+    assert scoped["total"] == 12
+    assert [item["finding_id"] for item in scoped["items"]] == [
+        f"F-MANY-{index:03d}" for index in range(12)
+    ]
+
+
+@pytest.mark.anyio
 async def test_signature_mutation_unknown_and_draft_reject_without_state(client, app):
     key = Ed25519PrivateKey.generate()
     await register_identity(client, key)

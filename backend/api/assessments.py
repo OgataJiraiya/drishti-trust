@@ -10,11 +10,14 @@ from backend.api.auth import require_admin
 from backend.api.dependencies import get_session
 from backend.database.repository import (
     AssessmentMembershipRepository, AssessmentRepository, AssessmentSnapshotRepository,
+    EvidenceRepository,
 )
 from backend.schemas.assessments import (
     AssessmentCreate, AssessmentDetails, AssessmentListResponse, AssessmentRunListResponse,
     AssessmentSnapshot, SnapshotVerification,
 )
+from backend.schemas.evidence import EvidenceListResponse
+from backend.services.evidence_service import EvidenceService
 from backend.services.assessment_service import AssessmentConflict, AssessmentMissing, AssessmentService
 
 router = APIRouter(prefix="/api/assessments", tags=["assessment lifecycle"])
@@ -106,6 +109,26 @@ async def assessment_runs(assessment_id: str, request: Request,
     return AssessmentRunListResponse(
         total=total, limit=limit, offset=offset,
         items=[request.app.state.integration_service.to_details(record, session) for record in records],
+    )
+
+
+@router.get("/{assessment_id}/findings", response_model=EvidenceListResponse,
+            summary="List authenticated findings attached to an assessment")
+async def assessment_findings(
+    assessment_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=100),
+    session: Session = Depends(get_session),
+) -> EvidenceListResponse:
+    if AssessmentRepository(session).get(assessment_id) is None:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    finding_ids = AssessmentMembershipRepository(session).finding_ids(assessment_id, "ED25519")
+    total, records = EvidenceRepository(session).list_ids(
+        finding_ids, (page - 1) * page_size, page_size
+    )
+    return EvidenceListResponse(
+        total=total, page=page, page_size=page_size,
+        items=[EvidenceService.to_schema(record) for record in records],
     )
 
 

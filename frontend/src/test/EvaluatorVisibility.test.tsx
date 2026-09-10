@@ -25,6 +25,10 @@ it('keeps backend coverage and score status in the visible overview flow', () =>
   expect(getComputedStyle(context).position).toBe('static');
 });
 
+it('retains final mobile overrides after desktop workstation rules', () => {
+  expect(css).toMatch(/@media screen and \(max-width: 600px\)[\s\S]*\.distribution-page, \.report-page[\s\S]*grid-template-columns: minmax\(0, 1fr\)/);
+});
+
 it('shows authentication and run identity with the actual workstation stylesheet', () => {
   render(<SystemPage summary={demoScenarios.critical} backend="ONLINE" runs={[{
     run_id: 'FULL-CONCERN-TEST-RUN-1', assessment_id: demoScenarios.critical.assessment_id,

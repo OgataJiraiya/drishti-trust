@@ -5,6 +5,7 @@ const isRunList=(v:unknown):v is RunList=>isRecord(v)&&typeof v.total==='number'
 const isSnapshot=(v:unknown):v is Snapshot=>isRecord(v)&&typeof v.assessment_id==='string'&&typeof v.summary_hash==='string'&&typeof v.run_set_hash==='string';
 const isVerification=(v:unknown):v is SnapshotVerification=>isRecord(v)&&typeof v.assessment_id==='string'&&(v.status==='VALID'||v.status==='INVALID');
 export const fetchFindings=()=>getJson('/api/evidence?page=1&page_size=100',isEvidenceList);
+export const fetchAssessmentFindings=(id:string)=>getJson(`/api/assessments/${encodeURIComponent(id)}/findings?page=1&page_size=100`,isEvidenceList);
 export const fetchRuns=(id:string)=>getJson(`/api/assessments/${encodeURIComponent(id)}/runs?limit=100&offset=0`,isRunList);
 export const fetchSnapshot=(id:string)=>getJson(`/api/assessments/${encodeURIComponent(id)}/snapshot`,isSnapshot);
 export const fetchSnapshotVerification=(id:string)=>getJson(`/api/assessments/${encodeURIComponent(id)}/snapshot/verify`,isVerification);

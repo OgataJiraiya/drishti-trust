@@ -1,4 +1,12 @@
+from concurrent.futures import ThreadPoolExecutor
+import time
+
 import pytest
+from sqlalchemy import func, select
+
+from backend.database.models import InferenceReceiptRecord
+from backend.database.repository import ReceiptRepository
+from backend.schemas.inference import CreateReceiptRequest
 
 
 async def _verify(client, receipt, payload, **artifact_changes):
@@ -53,3 +61,29 @@ async def test_validation_is_clean_4xx(client):
     response = await client.post("/api/inference/receipt", json={})
     assert response.status_code == 422
     assert "detail" in response.json()
+
+
+def test_concurrent_receipt_creation_allocates_distinct_sequences(app, creation_payload, monkeypatch):
+    original = ReceiptRepository.next_sequence
+
+    def synchronized_read(repository):
+        value = original(repository)
+        # Widen the real read-then-write race without changing its ordering.
+        time.sleep(0.2)
+        return value
+
+    monkeypatch.setattr(ReceiptRepository, "next_sequence", synchronized_read)
+
+    def create_one():
+        with app.state.session_factory() as session:
+            return app.state.provenance_service.create_receipt(
+                CreateReceiptRequest.model_validate(creation_payload), session
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        receipts = list(pool.map(lambda _index: create_one(), range(2)))
+
+    assert sorted(receipt.security.sequence for receipt in receipts) == [1, 2]
+    assert len({receipt.receipt_id for receipt in receipts}) == 2
+    with app.state.session_factory() as session:
+        assert session.scalar(select(func.count()).select_from(InferenceReceiptRecord)) == 2

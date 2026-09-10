@@ -59,6 +59,10 @@ class ProvenanceService:
 
     def create_receipt(self, request: CreateReceiptRequest, session: Session) -> InferenceReceipt:
         image_bytes = decode_input(request.input_base64, self.max_input_bytes)
+        # Serialize sequence allocation with the receipt insert. Without a write
+        # reservation, two backend workers can both read the same MAX(sequence)
+        # and then deadlock or collide while inserting that identity.
+        session.execute(text("BEGIN IMMEDIATE"))
         repository = ReceiptRepository(session)
         sequence = repository.next_sequence()
         previous = repository.latest()

@@ -269,6 +269,17 @@ class EvidenceRepository:
         ))
         return total, records
 
+    def list_ids(self, finding_ids: set[str], offset: int, limit: int) -> tuple[int, list[FindingRecord]]:
+        """List a caller-authorized finding set without leaking global evidence."""
+        if not finding_ids:
+            return 0, []
+        # Avoid SQLite's bound-parameter ceiling when a long-lived assessment
+        # contains many findings. The repository already uses this ordered scan
+        # for the global evidence view, and membership filtering remains local.
+        records = [record for record in self.all_ingestion_order()
+                   if record.finding_id in finding_ids]
+        return len(records), records[offset:offset + limit]
+
 
 class ModuleRunRepository:
     def __init__(self, session: Session) -> None:
