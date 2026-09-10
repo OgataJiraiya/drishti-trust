@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, true
 from sqlalchemy.orm import Session
 
 from backend.database.models import (
@@ -241,6 +241,27 @@ class EvidenceRepository:
 
     def count(self) -> int:
         return int(self.session.scalar(select(func.count()).select_from(FindingRecord)) or 0)
+
+    def for_assessment(self, assessment_id: str, offset: int, limit: int) -> tuple[int, list[FindingRecord]]:
+        """Page persisted evidence through authenticated membership entirely in SQL.
+
+        json_each expands the existing bounded per-run ID arrays. IN deduplicates
+        findings shared by runs without materializing global history in Python.
+        Historical approval is retained, as in assessment summary/seal semantics.
+        """
+        ids = func.json_each(ModuleRunRecord.finding_ids_json).table_valued('value')
+        scoped_ids = (select(ids.c.value).select_from(ModuleRunRecord)
+            .join(AssessmentRunMembershipRecord, AssessmentRunMembershipRecord.run_id == ModuleRunRecord.run_id)
+            .join(ModuleRunAuthenticationRecord, ModuleRunAuthenticationRecord.run_id == ModuleRunRecord.run_id)
+            .join(ids, true())
+            .where(AssessmentRunMembershipRecord.assessment_id == assessment_id,
+                   ModuleRunAuthenticationRecord.authentication_mode == 'ED25519',
+                   ModuleRunAuthenticationRecord.request_hash == ModuleRunRecord.request_hash))
+        query = select(FindingRecord).where(FindingRecord.finding_id.in_(scoped_ids))
+        total = int(self.session.scalar(select(func.count()).select_from(query.subquery())) or 0)
+        records = list(self.session.scalars(query.order_by(FindingRecord.ingested_at, FindingRecord.finding_id)
+                                          .offset(offset).limit(limit)))
+        return total, records
 
     def all_ingestion_order(self) -> list[FindingRecord]:
         return list(self.session.scalars(

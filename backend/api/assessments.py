@@ -1,23 +1,43 @@
 """Assessment lifecycle, membership, and sealed snapshot API."""
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from sqlalchemy.orm import Session
 
 from backend.api.auth import require_admin
 from backend.api.dependencies import get_session
 from backend.database.repository import (
     AssessmentMembershipRepository, AssessmentRepository, AssessmentSnapshotRepository,
+    EvidenceRepository,
 )
 from backend.schemas.assessments import (
     AssessmentCreate, AssessmentDetails, AssessmentListResponse, AssessmentRunListResponse,
     AssessmentSnapshot, SnapshotVerification,
+    AssessmentFindingsQuery,
 )
 from backend.services.assessment_service import AssessmentConflict, AssessmentMissing, AssessmentService
+from backend.schemas.evidence import EvidenceListResponse
+from backend.services.evidence_service import EvidenceService
 
 router = APIRouter(prefix="/api/assessments", tags=["assessment lifecycle"])
+
+
+@router.get('/{assessment_id}/findings', response_model=EvidenceListResponse)
+async def assessment_findings(
+    pagination: Annotated[AssessmentFindingsQuery, Query()],
+    assessment_id: str = Path(min_length=1, max_length=128),
+    session: Session = Depends(get_session),
+) -> EvidenceListResponse:
+    if not assessment_id.strip():
+        raise HTTPException(422, 'Assessment ID must contain non-whitespace text')
+    if AssessmentRepository(session).get(assessment_id) is None:
+        raise HTTPException(404, 'Assessment not found')
+    total, records = EvidenceRepository(session).for_assessment(
+        assessment_id, (pagination.page - 1) * pagination.page_size, pagination.page_size)
+    return EvidenceListResponse(total=total, page=pagination.page, page_size=pagination.page_size,
+                                items=[EvidenceService.to_schema(record) for record in records])
 
 
 def _errors(exc: Exception) -> HTTPException:

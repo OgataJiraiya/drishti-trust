@@ -66,6 +66,11 @@ class AssessmentRunListResponse(StrictSchema):
     items: list[ModuleRunDetails]
 
 
+class AssessmentFindingsQuery(StrictSchema):
+    page: int = Field(default=1, ge=1, le=2_147_483_647)
+    page_size: int = Field(default=100, ge=1, le=100)
+
+
 class AssessmentSnapshot(StrictSchema):
     assessment_id: str
     schema_version: Literal["1"]
