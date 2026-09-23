@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-async function renderDemo(scenario = 'critical') { vi.resetModules(); vi.stubEnv('VITE_DRISHTI_DEMO_MODE', 'true'); vi.stubEnv('VITE_DRISHTI_DEMO_SCENARIO', scenario); const { default: App } = await import('../App'); return render(<MemoryRouter><App /></MemoryRouter>); }
+async function renderDemo(scenario = 'critical') { vi.resetModules(); vi.stubEnv('VITE_DRISHTI_DEMO_MODE', 'true'); vi.stubEnv('VITE_DRISHTI_SUBMISSION_PREVIEW', 'false'); vi.stubEnv('VITE_DRISHTI_DEMO_SCENARIO', scenario); const { default: App } = await import('../App'); return render(<MemoryRouter><App /></MemoryRouter>); }
 afterEach(() => cleanup());
 
 describe('DRISHTI reference UI', () => {
@@ -17,7 +17,7 @@ describe('DRISHTI reference UI', () => {
 });
 
 describe('real backend states', () => {
-  beforeEach(() => { vi.resetModules(); vi.stubEnv('VITE_DRISHTI_DEMO_MODE', 'false'); });
+  beforeEach(() => { vi.resetModules(); vi.stubEnv('VITE_DRISHTI_DEMO_MODE', 'false'); vi.stubEnv('VITE_DRISHTI_SUBMISSION_PREVIEW', 'false'); });
   afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
   it('shows skeleton then bounded offline state with no demo badge', async () => { let reject: (() => void) | undefined; vi.stubGlobal('fetch', vi.fn(() => new Promise((_resolve, fail) => { reject = () => fail(new TypeError('offline')); }))); const { default: App } = await import('../App'); render(<MemoryRouter><App /></MemoryRouter>); expect(screen.getByLabelText('Loading assurance dashboard')).toBeVisible(); await waitFor(() => expect(reject).toBeTypeOf('function')); reject?.(); expect(await screen.findByText(/backend offline/i)).toBeVisible(); expect(screen.queryByText('DEMO DATA')).not.toBeInTheDocument(); });
   it('handles no active assessment 404', async () => { const { demoScenarios } = await import('../fixtures/demo'); vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => { const url = String(input); const body: unknown = url.endsWith('/health') ? { status: 'ok', service: 'x', offline: 'true', audit_outbox_pending: 0, audit_outbox_healthy: true, audit_chain_valid: true } : url.includes('/current') ? { detail: 'No ACTIVE assessment' } : url.includes('/assessments?') ? { total: 0, limit: 100, offset: 0, items: [] } : demoScenarios.unknown; return Promise.resolve(new Response(JSON.stringify(body), { status: url.includes('/current') ? 404 : 200, headers: { 'Content-Type': 'application/json' } })); })); const { default: App } = await import('../App'); render(<MemoryRouter><App /></MemoryRouter>); expect(await screen.findByText(/No active assessment\. Select a historical/)).toBeVisible(); });
