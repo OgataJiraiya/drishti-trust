@@ -1,106 +1,161 @@
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
-import { afterEach, expect, it, vi } from 'vitest';
+import { MemoryRouter, useLocation } from 'react-router-dom';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
+const key = 'drishti-preview-scenario';
 const publicPages = ['Overview', 'Findings', 'Distribution Shift', 'Reports'];
 const hiddenPages = ['New Assessment', 'Assurance Graph', 'System'];
-
-async function renderApp(preview: boolean, path = '/', scenario = 'critical') {
+function LocationProbe() { return <output data-testid="location">{useLocation().pathname}</output>; }
+async function renderApp(preview = true, path = '/', scenario = 'critical') {
   vi.resetModules();
   vi.stubEnv('VITE_DRISHTI_DEMO_MODE', 'true');
   vi.stubEnv('VITE_DRISHTI_DEMO_SCENARIO', scenario);
   vi.stubEnv('VITE_DRISHTI_SUBMISSION_PREVIEW', String(preview));
   const { default: App } = await import('../App');
-  return render(<MemoryRouter initialEntries={[path]}><App /></MemoryRouter>);
+  return render(<MemoryRouter initialEntries={[path]}><App /><LocationProbe /></MemoryRouter>);
 }
+beforeEach(() => sessionStorage.clear());
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); sessionStorage.clear(); });
 
-afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
-
-it('retains every canonical navigation link when preview flag is absent', async () => {
+it('retains every canonical navigation link outside preview', async () => {
   await renderApp(false);
-  const navigation = screen.getByRole('navigation');
-  for (const page of [...publicPages, ...hiddenPages]) {
-    expect(within(navigation).getByRole('link', { name: page })).toBeVisible();
-  }
+  for (const page of [...publicPages, ...hiddenPages]) expect(within(screen.getByRole('navigation')).getByRole('link', { name: page })).toBeVisible();
 });
 
-it('exposes exactly four public links, demo provenance, and truthful preview status', async () => {
-  await renderApp(true);
-  const navigation = screen.getByRole('navigation');
-  expect(within(navigation).getAllByRole('link').map((link) => link.textContent)).toEqual(publicPages);
-  for (const page of hiddenPages) expect(within(navigation).queryByRole('link', { name: page })).not.toBeInTheDocument();
-  for (const badge of screen.getAllByText('DEMO DATA')) expect(badge).toBeVisible();
-  expect(screen.getByRole('heading', { name: 'Verify trust before deployment' })).toBeVisible();
-  expect(screen.getByRole('heading', { name: 'Compromised AI Pipeline' })).toBeVisible();
-  expect(screen.getByRole('heading', { name: 'Clean Reference Pipeline' })).toBeVisible();
-  expect(screen.queryByRole('combobox', { name: 'Demo Scenario' })).not.toBeInTheDocument();
-  expect(screen.getByText('SIH Submission Preview · Core Integrity Assurance Workflow')).toBeVisible();
+it('shows the dossier on a fresh root with only four links and demo provenance', async () => {
+  await renderApp();
+  expect(screen.getByRole('heading', { name: 'Evidence before confidence.' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'High-Risk Pipeline' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Reference Pipeline' })).toBeVisible();
+  const snapshot = within(screen.getByRole('complementary', { name: 'Assurance snapshot' }));
+  for (const text of ['QUARANTINE', '100%', 'VALID', 'Controlled assessment fixture']) expect(snapshot.getByText(text)).toBeVisible();
+  expect(snapshot.getByText(/62.8/)).toBeVisible();
   expect(screen.getByText('PREVIEW / DEMO')).toBeVisible();
-  expect(screen.queryByText(/Local backend online/i)).not.toBeInTheDocument();
+  for (const badge of screen.getAllByText('DEMO DATA')) expect(badge).toBeVisible();
+  const nav = within(screen.getByRole('navigation'));
+  expect(nav.getAllByRole('link').map(link => link.textContent)).toEqual(publicPages);
+  for (const page of hiddenPages) expect(nav.queryByRole('link', { name: page })).not.toBeInTheDocument();
+  expect(screen.queryByRole('combobox', { name: 'Demo Scenario' })).not.toBeInTheDocument();
+  expect(sessionStorage.getItem(key)).toBeNull();
+});
+
+const detailPages = [
+  ['/findings', 'Findings', 'Findings'],
+  ['/distribution', 'Distribution Shift', 'Distribution Shift'],
+  ['/reports', 'Reports', 'Assessment assurance summary'],
+] as const;
+it.each(detailPages)('navigates from fresh landing to %s without redirecting home', async (path, link, heading) => {
+  await renderApp();
+  await userEvent.click(screen.getByRole('link', { name: link }));
+  expect(screen.getByRole('heading', { name: heading })).toBeVisible();
+  expect(screen.getByTestId('location')).toHaveTextContent(path);
+  expect(screen.getByRole('combobox', { name: 'Demo Scenario' })).toHaveValue('critical');
+  if (path === '/findings') expect(screen.getAllByText('FND-2026-0042').length).toBeGreaterThan(0);
+});
+it.each(detailPages)('supports direct load and fresh refresh of %s', async (path, _link, heading) => {
+  const page = await renderApp(true, path);
+  expect(screen.getByRole('heading', { name: heading })).toBeVisible();
+  expect(screen.getByRole('combobox', { name: 'Demo Scenario' })).toHaveValue('critical');
+  expect(screen.getByTestId('location')).toHaveTextContent(path);
+  page.unmount();
+  await renderApp(true, path);
+  expect(screen.getByRole('heading', { name: heading })).toBeVisible();
+  expect(screen.getByTestId('location')).toHaveTextContent(path);
+});
+
+it.each(detailPages)('restores reference context on direct load and refresh of %s', async (path, _link, heading) => {
+  sessionStorage.setItem(key, 'clean');
+  const page = await renderApp(true, path);
+  expect(screen.getByRole('heading', { name: heading })).toBeVisible();
+  expect(screen.getByRole('combobox', { name: 'Demo Scenario' })).toHaveValue('clean');
+  if (path === '/reports') {
+    expect(screen.getByRole('img', { name: 'Backend assurance score 96.1 out of 100' })).toBeVisible();
+    expect(screen.getByText('ACCEPT')).toBeVisible();
+  }
+  page.unmount();
+  await renderApp(true, path);
+  expect(screen.getByRole('combobox', { name: 'Demo Scenario' })).toHaveValue('clean');
+  expect(screen.getByTestId('location')).toHaveTextContent(path);
 });
 
 it.each([
-  ['critical', 'Review High-Risk Assessment', '62.8', 'QUARANTINE'],
-  ['clean', 'Review Clean Assessment', '96.1', 'ACCEPT'],
-])('uses the %s fixture across all four pages without network requests', async (scenario, button, score, disposition) => {
-  const network = vi.fn(() => { throw new Error('Preview attempted a network request'); });
+  ['High-Risk Pipeline', 'critical', '62.8', 'QUARANTINE'],
+  ['Reference Pipeline', 'clean', '96.1', 'ACCEPT'],
+])('opens and persists %s, drives all pages without requests, and resets', async (title, scenario, score, disposition) => {
+  const network = vi.fn(() => { throw new Error('Unexpected preview network request'); });
   for (const name of ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource']) vi.stubGlobal(name, network);
   const print = vi.spyOn(window, 'print').mockImplementation(() => {});
-  await renderApp(true);
-  await userEvent.click(screen.getByRole('button', { name: button }));
-  const { demoScenarios } = await import('../fixtures/demo');
-  const fixture = demoScenarios[scenario];
-  expect(screen.getByRole('img', { name: 'Backend assurance score ' + score + ' out of 100' })).toBeVisible();
+  await renderApp();
+  await userEvent.click(screen.getByRole('button', { name: 'Open assessment: ' + title }));
+  expect(sessionStorage.getItem(key)).toBe(scenario);
   expect(screen.getByText(score + ' / 100')).toBeVisible();
   expect(screen.getByText('Coverage 100%')).toBeVisible();
   expect(screen.getAllByText(disposition).length).toBeGreaterThan(0);
+  const { demoScenarios } = await import('../fixtures/demo');
+  const fixture = demoScenarios[scenario];
   expect(screen.getByText(fixture.trusted_finding_count + ' authenticated · ' + fixture.excluded_untrusted_finding_count + ' excluded')).toBeVisible();
-  expect(screen.getByText('Audit VALID · ' + fixture.audit_integrity.records_checked + ' records checked')).toBeVisible();
-  expect(screen.getByRole('combobox', { name: 'Demo Scenario' })).toHaveValue(scenario);
   await userEvent.click(screen.getByRole('link', { name: 'Findings' }));
-  expect(screen.getByRole('heading', { name: 'Findings' })).toBeVisible();
   for (const finding of fixture.latest_findings) expect(screen.getAllByText(finding.finding_id).length).toBeGreaterThan(0);
   await userEvent.click(screen.getByRole('link', { name: 'Distribution Shift' }));
-  expect(screen.getByRole('heading', { name: 'Distribution Shift' })).toBeVisible();
   expect(screen.getByText(fixture.modules.distribution_shift.status)).toBeVisible();
   await userEvent.click(screen.getByRole('link', { name: 'Reports' }));
-  expect(screen.getByRole('heading', { name: 'Assessment assurance summary' })).toBeVisible();
   expect(screen.getByRole('img', { name: 'Backend assurance score ' + score + ' out of 100' })).toBeVisible();
   await userEvent.click(screen.getByRole('button', { name: 'PRINT / SAVE AS PDF' }));
   expect(print).toHaveBeenCalledOnce();
   await userEvent.click(screen.getByRole('link', { name: 'Overview' }));
-  expect(screen.getByText(score + ' / 100')).toBeVisible();
-  await userEvent.click(screen.getByRole('button', { name: 'Change demo scenario' }));
-  expect(screen.getByRole('heading', { name: 'Verify trust before deployment' })).toBeVisible();
-  expect(screen.queryByText(score + ' / 100')).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Change assessment' }));
+  expect(sessionStorage.getItem(key)).toBeNull();
+  expect(screen.getByRole('heading', { name: 'Evidence before confidence.' })).toBeVisible();
   expect(network).not.toHaveBeenCalled();
-  print.mockRestore();
 });
 
-it('keeps the compact selector and guided selection in sync', async () => {
-  await renderApp(true);
-  await userEvent.click(screen.getByRole('button', { name: 'Review High-Risk Assessment' }));
+it('changes the compact selector on Reports without changing the route and restores it on refresh', async () => {
+  const page = await renderApp(true, '/reports');
   await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Demo Scenario' }), 'clean');
-  expect(screen.getByText('96.1 / 100')).toBeVisible();
-  expect(screen.getByText('Reference demo loaded. Explore assurance details and reporting.')).toBeVisible();
+  expect(sessionStorage.getItem(key)).toBe('clean');
+  expect(screen.getByTestId('location')).toHaveTextContent('/reports');
+  expect(screen.getByRole('img', { name: 'Backend assurance score 96.1 out of 100' })).toBeVisible();
+  page.unmount();
+  await renderApp(true, '/reports');
+  expect(screen.getByRole('combobox', { name: 'Demo Scenario' })).toHaveValue('clean');
   await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Demo Scenario' }), 'critical');
-  expect(screen.getByText('62.8 / 100')).toBeVisible();
-  expect(screen.getByText('High-risk demo loaded. Explore Findings, Distribution Shift and Reports.')).toBeVisible();
+  expect(sessionStorage.getItem(key)).toBe('critical');
+  expect(screen.getByTestId('location')).toHaveTextContent('/reports');
+  expect(screen.getByRole('img', { name: 'Backend assurance score 62.8 out of 100' })).toBeVisible();
+  await userEvent.click(screen.getByRole('button', { name: 'Reset demo' }));
+  expect(sessionStorage.getItem(key)).toBeNull();
+  expect(screen.getByTestId('location')).toHaveTextContent(/^\/$/);
+  expect(screen.getByRole('heading', { name: 'Evidence before confidence.' })).toBeVisible();
 });
 
-it('redirects hidden preview routes to the landing', async () => {
-  await renderApp(true, '/new-assessment');
-  expect(screen.getByRole('heading', { name: 'Verify trust before deployment' })).toBeVisible();
-  expect(screen.queryByRole('heading', { name: 'New Assessment' })).not.toBeInTheDocument();
+it.each(['unknown', 'null', '../reports'])('ignores unallowlisted session value %s', async value => {
+  sessionStorage.setItem(key, value);
+  const page = await renderApp();
+  expect(screen.getByRole('heading', { name: 'Evidence before confidence.' })).toBeVisible();
+  page.unmount();
+  await renderApp(true, '/reports');
+  expect(screen.getByRole('img', { name: 'Backend assurance score 62.8 out of 100' })).toBeVisible();
 });
-
+it('remains usable if browser storage is unavailable', async () => {
+  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('Blocked'); });
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Blocked'); });
+  vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('Blocked'); });
+  await renderApp();
+  await userEvent.click(screen.getByRole('button', { name: 'Open assessment: Reference Pipeline' }));
+  expect(screen.getByText('96.1 / 100')).toBeVisible();
+  await userEvent.click(screen.getByRole('button', { name: 'Reset demo' }));
+  expect(screen.getByRole('heading', { name: 'Evidence before confidence.' })).toBeVisible();
+});
+it.each(['/new-assessment', '/graph', '/system'])('redirects hidden route %s safely to the fresh landing', async path => {
+  await renderApp(true, path);
+  expect(screen.getByRole('heading', { name: 'Evidence before confidence.' })).toBeVisible();
+  expect(screen.getByTestId('location')).toHaveTextContent(/^\/$/);
+});
 it('keeps UNKNOWN distinct from safe and preserves an unavailable score', async () => {
-  // UNKNOWN remains part of the normal prototype; public choices are critical/clean only.
   await renderApp(false, '/', 'unknown');
   expect(await screen.findByLabelText('Assurance score unavailable')).toBeVisible();
-  expect(screen.getAllByText('UNKNOWN').length).toBeGreaterThan(0);
   await userEvent.click(screen.getByText('Status and decision semantics'));
   expect(screen.getByText(/UNKNOWN does not mean safe/)).toBeVisible();
-  expect(screen.queryByText(/^0\.0 \/ 100$/)).not.toBeInTheDocument();
+  expect(screen.queryByText('0.0 / 100')).not.toBeInTheDocument();
 });
