@@ -14,15 +14,15 @@ const nav = preview ? [
   ['/new-assessment', 'New Assessment', FileText], ['/reports', 'Reports', FileText], ['/system', 'System', ServerCog],
 ] as const;
 
-export function AppShell({ children, assessments, selected, onSelect, backend, demo }: { children: ReactNode; assessments: Assessment[]; selected: string; onSelect: (id: string) => void; backend: BackendState; demo: boolean }) {
+export function AppShell({ children, assessments, selected, onSelect, backend, demo, previewScenario }: { children: ReactNode; assessments: Assessment[]; selected: string; onSelect: (id: string) => void; backend: BackendState; demo: boolean; previewScenario?: ReactNode }) {
   const [open, setOpen] = useState(false);
   const current = assessments.find((item) => item.assessment_id === selected);
-  return <div className="app-shell">
+  return <div className={preview ? 'app-shell submission-preview-shell' : 'app-shell'}>
     <a className="skip-link" href="#main">Skip to main content</a>
     <header className="topbar">
       <button className="mobile-menu" onClick={() => setOpen(!open)} aria-label="Toggle navigation" aria-expanded={open}>{open ? <X /> : <Menu />}</button>
       <div className="command-brand"><strong>Drishti Trust</strong><i /><span>{preview ? 'Submission Preview' : 'Local Workstation'}</span></div>
-      <div className="context"><label htmlFor="assessment-select">Assessment</label><select id="assessment-select" value={selected} onChange={(event) => onSelect(event.target.value)}><option value="">{assessments.length ? 'Current context' : 'No active assessment'}</option>{assessments.map((item) => <option key={item.assessment_id} value={item.assessment_id}>{item.name} · {item.assessment_id}</option>)}</select></div>
+      {preview ? previewScenario : <div className="context"><label htmlFor="assessment-select">Assessment</label><select id="assessment-select" value={selected} onChange={(event) => onSelect(event.target.value)}><option value="">{assessments.length ? 'Current context' : 'No active assessment'}</option>{assessments.map((item) => <option key={item.assessment_id} value={item.assessment_id}>{item.name} · {item.assessment_id}</option>)}</select></div>}
       <div className="backend"><span className={`status-dot ${preview ? 'preview' : backend.toLowerCase()}`} /><strong>{preview ? 'PREVIEW / DEMO' : `${backend} / LOCAL`}</strong></div>
       {current && <div className="top-assessment"><span>ASSESSMENT ID</span><code>{current.assessment_id}</code></div>}
       {demo && <Badge tone="demo">DEMO DATA</Badge>}

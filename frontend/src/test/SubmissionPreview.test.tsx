@@ -30,41 +30,75 @@ it('exposes exactly four public links, demo provenance, and truthful preview sta
   const navigation = screen.getByRole('navigation');
   expect(within(navigation).getAllByRole('link').map((link) => link.textContent)).toEqual(publicPages);
   for (const page of hiddenPages) expect(within(navigation).queryByRole('link', { name: page })).not.toBeInTheDocument();
-  expect(screen.getByText('DEMO DATA')).toBeVisible();
+  for (const badge of screen.getAllByText('DEMO DATA')) expect(badge).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Verify trust before deployment' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Compromised AI Pipeline' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Clean Reference Pipeline' })).toBeVisible();
+  expect(screen.queryByRole('combobox', { name: 'Demo Scenario' })).not.toBeInTheDocument();
   expect(screen.getByText('SIH Submission Preview · Core Integrity Assurance Workflow')).toBeVisible();
   expect(screen.getByText('PREVIEW / DEMO')).toBeVisible();
   expect(screen.queryByText(/Local backend online/i)).not.toBeInTheDocument();
 });
 
-it('uses the critical fixture and makes no request across all preview pages', async () => {
-  const fetchSpy = vi.fn(() => { throw new Error('Preview attempted a network request'); });
-  vi.stubGlobal('fetch', fetchSpy);
-  const view = await renderApp(true);
-  expect(screen.getByRole('img', { name: 'Backend assurance score 62.8 out of 100' })).toBeVisible();
+it.each([
+  ['critical', 'Review High-Risk Assessment', '62.8', 'QUARANTINE'],
+  ['clean', 'Review Clean Assessment', '96.1', 'ACCEPT'],
+])('uses the %s fixture across all four pages without network requests', async (scenario, button, score, disposition) => {
+  const network = vi.fn(() => { throw new Error('Preview attempted a network request'); });
+  for (const name of ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource']) vi.stubGlobal(name, network);
+  const print = vi.spyOn(window, 'print').mockImplementation(() => {});
+  await renderApp(true);
+  await userEvent.click(screen.getByRole('button', { name: button }));
+  const { demoScenarios } = await import('../fixtures/demo');
+  const fixture = demoScenarios[scenario];
+  expect(screen.getByRole('img', { name: 'Backend assurance score ' + score + ' out of 100' })).toBeVisible();
+  expect(screen.getByText(score + ' / 100')).toBeVisible();
   expect(screen.getByText('Coverage 100%')).toBeVisible();
-  expect(screen.getAllByText('QUARANTINE').length).toBeGreaterThan(0);
-  expect(screen.getByText(/18 authenticated · 3 excluded/)).toBeVisible();
-  expect(screen.getByText(/Audit VALID · 184 records checked/)).toBeVisible();
-  expect(fetchSpy).not.toHaveBeenCalled();
-  view.unmount();
-
-  for (const [path, heading] of [['/findings', 'Findings'], ['/distribution', 'Distribution Shift'], ['/reports', 'Assessment assurance summary']]) {
-    const page = await renderApp(true, path);
-    expect(screen.getByRole('heading', { name: heading })).toBeVisible();
-    expect(fetchSpy).not.toHaveBeenCalled();
-    page.unmount();
-  }
+  expect(screen.getAllByText(disposition).length).toBeGreaterThan(0);
+  expect(screen.getByText(fixture.trusted_finding_count + ' authenticated · ' + fixture.excluded_untrusted_finding_count + ' excluded')).toBeVisible();
+  expect(screen.getByText('Audit VALID · ' + fixture.audit_integrity.records_checked + ' records checked')).toBeVisible();
+  expect(screen.getByRole('combobox', { name: 'Demo Scenario' })).toHaveValue(scenario);
+  await userEvent.click(screen.getByRole('link', { name: 'Findings' }));
+  expect(screen.getByRole('heading', { name: 'Findings' })).toBeVisible();
+  for (const finding of fixture.latest_findings) expect(screen.getAllByText(finding.finding_id).length).toBeGreaterThan(0);
+  await userEvent.click(screen.getByRole('link', { name: 'Distribution Shift' }));
+  expect(screen.getByRole('heading', { name: 'Distribution Shift' })).toBeVisible();
+  expect(screen.getByText(fixture.modules.distribution_shift.status)).toBeVisible();
+  await userEvent.click(screen.getByRole('link', { name: 'Reports' }));
+  expect(screen.getByRole('heading', { name: 'Assessment assurance summary' })).toBeVisible();
+  expect(screen.getByRole('img', { name: 'Backend assurance score ' + score + ' out of 100' })).toBeVisible();
+  await userEvent.click(screen.getByRole('button', { name: 'PRINT / SAVE AS PDF' }));
+  expect(print).toHaveBeenCalledOnce();
+  await userEvent.click(screen.getByRole('link', { name: 'Overview' }));
+  expect(screen.getByText(score + ' / 100')).toBeVisible();
+  await userEvent.click(screen.getByRole('button', { name: 'Change demo scenario' }));
+  expect(screen.getByRole('heading', { name: 'Verify trust before deployment' })).toBeVisible();
+  expect(screen.queryByText(score + ' / 100')).not.toBeInTheDocument();
+  expect(network).not.toHaveBeenCalled();
+  print.mockRestore();
 });
 
-it('redirects hidden preview routes to Overview', async () => {
+it('keeps the compact selector and guided selection in sync', async () => {
+  await renderApp(true);
+  await userEvent.click(screen.getByRole('button', { name: 'Review High-Risk Assessment' }));
+  await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Demo Scenario' }), 'clean');
+  expect(screen.getByText('96.1 / 100')).toBeVisible();
+  expect(screen.getByText('Reference demo loaded. Explore assurance details and reporting.')).toBeVisible();
+  await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Demo Scenario' }), 'critical');
+  expect(screen.getByText('62.8 / 100')).toBeVisible();
+  expect(screen.getByText('High-risk demo loaded. Explore Findings, Distribution Shift and Reports.')).toBeVisible();
+});
+
+it('redirects hidden preview routes to the landing', async () => {
   await renderApp(true, '/new-assessment');
-  expect(screen.getByRole('img', { name: 'Backend assurance score 62.8 out of 100' })).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Verify trust before deployment' })).toBeVisible();
   expect(screen.queryByRole('heading', { name: 'New Assessment' })).not.toBeInTheDocument();
 });
 
 it('keeps UNKNOWN distinct from safe and preserves an unavailable score', async () => {
-  await renderApp(true, '/', 'unknown');
-  expect(screen.getByLabelText('Assurance score unavailable')).toBeVisible();
+  // UNKNOWN remains part of the normal prototype; public choices are critical/clean only.
+  await renderApp(false, '/', 'unknown');
+  expect(await screen.findByLabelText('Assurance score unavailable')).toBeVisible();
   expect(screen.getAllByText('UNKNOWN').length).toBeGreaterThan(0);
   await userEvent.click(screen.getByText('Status and decision semantics'));
   expect(screen.getByText(/UNKNOWN does not mean safe/)).toBeVisible();
